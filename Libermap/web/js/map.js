@@ -223,6 +223,13 @@ const LiberMap = {
             const cables = await api.cables.list(filters);
             let totalLength = 0;
             cables.forEach((cable) => {
+                // Parse PostGIS geometry to [[lat,lng],...] if needed
+                if (cable.path && typeof cable.path === 'string') {
+                    cable.path = this._parseGeometry(cable.path);
+                } else if (cable.path && cable.path.type === 'LineString') {
+                    // GeoJSON format: coordinates are [lng, lat]
+                    cable.path = cable.path.coordinates.map(c => [c[1], c[0]]);
+                }
                 this.addCable(cable);
                 totalLength += parseFloat(cable.length_meters) || 0;
             });
@@ -231,6 +238,21 @@ const LiberMap = {
             console.error('Erro ao carregar cabos:', err);
             return { count: 0, totalLength: 0 };
         }
+    },
+
+    /**
+     * Parse PostGIS WKT/EWKT geometry string to [[lat,lng],...] array
+     */
+    _parseGeometry(geomStr) {
+        // Handle SRID=4326;LINESTRING(...) or LINESTRING(...)
+        const match = geomStr.match(/LINESTRING\s*\(([^)]+)\)/i);
+        if (match) {
+            return match[1].split(',').map(pair => {
+                const [lng, lat] = pair.trim().split(/\s+/).map(Number);
+                return [lat, lng];
+            });
+        }
+        return [];
     },
 
     // ===== CABLE DRAWING =====

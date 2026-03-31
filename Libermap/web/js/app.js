@@ -286,7 +286,7 @@ function initToolbar() {
 
     // Viability
     btnViability.addEventListener('click', () => {
-        document.getElementById('modal-viability').showModal();
+        document.getElementById('modal-viability').show();
         reinitIcons();
         document.getElementById('viability-result').innerHTML = '<p class="text-muted">Clique no mapa para selecionar o ponto do cliente e analisar viabilidade.</p>';
 
@@ -673,12 +673,15 @@ function initModals() {
     formCable.addEventListener('submit', async (e) => {
         e.preventDefault();
         const pathData = JSON.parse(document.getElementById('cable-path-data').value || '[]');
+        // Convert [lat, lng] array to PostGIS EWKT format: SRID=4326;LINESTRING(lng lat, lng lat, ...)
+        const wktCoords = pathData.map(p => `${p[1]} ${p[0]}`).join(', ');
+        const pathWKT = `SRID=4326;LINESTRING(${wktCoords})`;
         const data = {
             name: document.getElementById('cable-name').value,
             cable_type: document.getElementById('cable-type').value,
             fiber_count: parseInt(document.getElementById('cable-fibers').value),
             length_meters: parseFloat(document.getElementById('cable-length').value) || 0,
-            path: pathData,
+            path: pathWKT,
         };
 
         try {
