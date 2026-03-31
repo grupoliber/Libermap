@@ -21,6 +21,7 @@ function showToast(message, type = 'info') {
 const AppState = {
     currentView: 'map',
     selectedElement: null,
+    editingElementId: null,
     addMode: false,
     stats: {},
 };
@@ -400,25 +401,99 @@ function initSidebar() {
         }
     });
 
-    // Edit/Delete element
+    // Edit element
     document.getElementById('btn-edit-element').addEventListener('click', () => {
-        if (AppState.selectedElement) {
-            showToast('Edição em desenvolvimento', 'warning');
-        }
+        if (!AppState.selectedElement) return;
+        const el = AppState.selectedElement;
+
+        // Populate modal with current values
+        document.getElementById('elem-type').value = el.type || 'cto';
+        document.getElementById('elem-name').value = el.name || '';
+        document.getElementById('elem-address').value = el.address || '';
+        document.getElementById('elem-area').value = el.area || '';
+        document.getElementById('elem-capacity').value = el.capacity || '';
+        const modelField = document.getElementById('elem-model');
+        if (modelField) modelField.value = el.metadata?.model || '';
+        document.getElementById('elem-notes').value = el.description || '';
+        document.getElementById('elem-lat').value = el.location?.lat || el.lat || '';
+        document.getElementById('elem-lng').value = el.location?.lng || el.lng || '';
+
+        // Set modal to edit mode
+        AppState.editingElementId = el.id;
+        const modalTitle = document.querySelector('#modal-element .modal-header h2');
+        modalTitle.textContent = 'Editar Elemento';
+        const submitBtn = document.querySelector('#modal-element button[type="submit"]');
+        submitBtn.textContent = 'Salvar Alterações';
+
+        document.getElementById('modal-element').showModal();
+        reinitIcons();
     });
 
+    // Delete element with dependency check
     document.getElementById('btn-delete-element').addEventListener('click', async () => {
         if (!AppState.selectedElement) return;
-        if (!confirm(`Excluir ${AppState.selectedElement.name}?`)) return;
+        const elId = AppState.selectedElement.id;
+        const elName = AppState.selectedElement.name;
+
         try {
-            await api.elements.delete(AppState.selectedElement.id);
-            const marker = LiberMap.markers[AppState.selectedElement.id];
+            // Check for cables connected to this element
+            const cablesFrom = await supabase.request('GET', 'cables', {
+                filters: { element_from_id: `eq.${elId}` },
+                select: 'id,name'
+            });
+            const cablesTo = await supabase.request('GET', 'cables', {
+                filters: { element_to_id: `eq.${elId}` },
+                select: 'id,name'
+            });
+            const connectedCables = [...(cablesFrom || []), ...(cablesTo || [])];
+
+            // Check for splitters in this element
+            const splitters = await supabase.request('GET', 'splitters', {
+                filters: { element_id: `eq.${elId}` },
+                select: 'id'
+            });
+
+            // Check for fusions in this element
+            const fusions = await supabase.request('GET', 'fusions', {
+                filters: { element_id: `eq.${elId}` },
+                select: 'id'
+            });
+
+            const deps = [];
+            if (connectedCables.length > 0) {
+                const cableNames = connectedCables.map(c => c.name || `#${c.id}`).join(', ');
+                deps.push(`${connectedCables.length} cabo(s): ${cableNames}`);
+            }
+            if (splitters && splitters.length > 0) {
+                deps.push(`${splitters.length} splitter(s)`);
+            }
+            if (fusions && fusions.length > 0) {
+                deps.push(`${fusions.length} fusão(ões)`);
+            }
+
+            if (deps.length > 0) {
+                showToast(`Não é possível excluir "${elName}". Existem conexões ativas:\n• ${deps.join('\n• ')}\n\nRemova as conexões antes de excluir.`, 'error');
+                return;
+            }
+
+            // No dependencies — confirm and delete
+            if (!confirm(`Tem certeza que deseja excluir "${elName}"? Esta ação não pode ser desfeita.`)) return;
+
+            await api.elements.delete(elId);
+            const marker = LiberMap.markers[elId];
             if (marker) {
                 LiberMap.map.removeLayer(marker);
-                delete LiberMap.markers[AppState.selectedElement.id];
+                delete LiberMap.markers[elId];
             }
             sidebar.classList.add('hidden');
-            showToast('Elemento excluído.', 'success');
+            showToast(`"${elName}" excluído com sucesso.`, 'success');
+
+            // Update stats
+            const elType = AppState.selectedElement.type;
+            if (AppState.stats[elType] !== undefined) {
+                AppState.stats[elType]--;
+            }
+            AppState.selectedElement = null;
         } catch (err) {
             showToast('Erro ao excluir: ' + err.message, 'error');
         }
@@ -637,7 +712,7 @@ function initModals() {
     // Cancel element modal
     btnCancel.addEventListener('click', () => modalElement.close());
 
-    // Save element
+    // Save element (create or update)
     formElement.addEventListener('submit', async (e) => {
         e.preventDefault();
         const data = {
@@ -654,19 +729,57 @@ function initModals() {
         };
 
         try {
-            const element = await api.elements.create(data);
-            LiberMap.addElement(element);
-            modalElement.close();
-            formElement.reset();
-            showToast(`${data.name} criado com sucesso!`, 'success');
+            if (AppState.editingElementId) {
+                // UPDATE mode
+                const id = AppState.editingElementId;
+                await api.elements.update(id, data);
 
-            // Update stats
-            if (AppState.stats[data.type] !== undefined) {
-                AppState.stats[data.type]++;
+                // Update marker on map
+                const marker = LiberMap.markers[id];
+                if (marker) {
+                    marker.setLatLng([data.location.lat, data.location.lng]);
+                    marker.setIcon(LiberMap.createIcon(data.type));
+                    marker.setPopupContent(`<b>${data.name}</b><br>${data.type.toUpperCase()}`);
+                }
+
+                // Update sidebar if still selected
+                if (AppState.selectedElement && AppState.selectedElement.id === id) {
+                    const updated = { ...AppState.selectedElement, ...data };
+                    AppState.selectedElement = updated;
+                    window.onElementClick(updated);
+                }
+
+                modalElement.close();
+                formElement.reset();
+                AppState.editingElementId = null;
+                showToast(`${data.name} atualizado com sucesso!`, 'success');
+
+                // Reset modal title
+                document.querySelector('#modal-element .modal-header h2').textContent = 'Novo Elemento';
+                document.querySelector('#modal-element button[type="submit"]').textContent = 'Salvar Elemento';
+            } else {
+                // CREATE mode
+                const element = await api.elements.create(data);
+                LiberMap.addElement(element);
+                modalElement.close();
+                formElement.reset();
+                showToast(`${data.name} criado com sucesso!`, 'success');
+
+                // Update stats
+                if (AppState.stats[data.type] !== undefined) {
+                    AppState.stats[data.type]++;
+                }
             }
         } catch (err) {
-            showToast('Erro ao criar elemento: ' + err.message, 'error');
+            showToast(`Erro ao ${AppState.editingElementId ? 'atualizar' : 'criar'} elemento: ` + err.message, 'error');
         }
+    });
+
+    // Reset modal when closed
+    modalElement.addEventListener('close', () => {
+        AppState.editingElementId = null;
+        document.querySelector('#modal-element .modal-header h2').textContent = 'Novo Elemento';
+        document.querySelector('#modal-element button[type="submit"]').textContent = 'Salvar Elemento';
     });
 
     // Save cable

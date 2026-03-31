@@ -102,7 +102,14 @@ const api = {
             const result = await supabase.request('POST', 'elements', { body });
             return Array.isArray(result) ? result[0] : result;
         },
-        update: (id, data) => supabase.request('PATCH', `elements?id=eq.${id}`, { body: data }),
+        update: (id, data) => {
+            // Convert location {lat, lng} to PostGIS EWKT if present
+            const body = { ...data };
+            if (body.location && body.location.lat && body.location.lng) {
+                body.location = `SRID=4326;POINT(${body.location.lng} ${body.location.lat})`;
+            }
+            return supabase.request('PATCH', `elements?id=eq.${id}`, { body });
+        },
         delete: (id) => supabase.request('DELETE', `elements?id=eq.${id}`, {}),
     },
 
