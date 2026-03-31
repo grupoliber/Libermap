@@ -255,6 +255,25 @@ const LiberMap = {
         return [];
     },
 
+    // ===== ELEMENT PROXIMITY DETECTION =====
+
+    /**
+     * Find the nearest element to a given lat/lng within a threshold (meters)
+     */
+    findNearestElement(latlng, thresholdMeters = 50) {
+        let nearest = null;
+        let minDist = Infinity;
+        Object.entries(this.markers).forEach(([id, marker]) => {
+            const markerLatLng = marker.getLatLng();
+            const dist = this.map.distance(latlng, markerLatLng);
+            if (dist < minDist && dist <= thresholdMeters) {
+                minDist = dist;
+                nearest = { id: parseInt(id), latlng: markerLatLng, distance: dist };
+            }
+        });
+        return nearest;
+    },
+
     // ===== CABLE DRAWING =====
 
     startCableDraw() {
@@ -277,12 +296,51 @@ const LiberMap = {
         this.drawingMode = null;
         this.map.getContainer().style.cursor = '';
 
-        // Mostrar modal de cabo
+        // Detect nearest elements at start and end points
+        const startPoint = this.drawPoints[0];
+        const endPoint = this.drawPoints[this.drawPoints.length - 1];
+        const nearStart = this.findNearestElement(startPoint, 80);
+        const nearEnd = this.findNearestElement(endPoint, 80);
+
+        // Populate cable modal
         document.getElementById('cable-length').value = lengthM.toFixed(0) + 'm';
         document.getElementById('cable-path-data').value = JSON.stringify(path);
+
+        // Populate element_from / element_to dropdowns
+        this._populateElementSelect('cable-element-from', nearStart ? nearStart.id : '');
+        this._populateElementSelect('cable-element-to', nearEnd ? nearEnd.id : '');
+
         document.getElementById('modal-cable').showModal();
+        if (typeof reinitIcons === 'function') reinitIcons();
 
         return { path, length: lengthM };
+    },
+
+    /**
+     * Populate a select element with all map elements
+     */
+    _populateElementSelect(selectId, selectedId) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        // Keep the first option (placeholder)
+        select.innerHTML = '<option value="">— Nenhum —</option>';
+        // Get all elements from markers and sort by name
+        const elements = [];
+        Object.entries(this.markers).forEach(([id, marker]) => {
+            const popup = marker.getPopup();
+            const content = popup ? popup.getContent() : '';
+            const nameMatch = content.match(/<strong>([^<]+)<\/strong>/);
+            const name = nameMatch ? nameMatch[1] : `Elemento #${id}`;
+            elements.push({ id, name });
+        });
+        elements.sort((a, b) => a.name.localeCompare(b.name));
+        elements.forEach(el => {
+            const opt = document.createElement('option');
+            opt.value = el.id;
+            opt.textContent = el.name;
+            if (String(el.id) === String(selectedId)) opt.selected = true;
+            select.appendChild(opt);
+        });
     },
 
     cancelCableDraw() {
