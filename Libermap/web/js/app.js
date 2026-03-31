@@ -729,103 +729,471 @@ async function traceElement(elementId) {
 }
 
 // ===== BOX EDITOR =====
-function openBoxEditor(element) {
-    const modal = document.getElementById('modal-box-editor');
-    document.getElementById('box-editor-title').textContent = element.name;
+const FIBER_COLORS = {
+    'verde': '#22c55e', 'amarelo': '#eab308', 'branco': '#e2e8f0',
+    'azul': '#3b82f6', 'vermelho': '#ef4444', 'violeta': '#8b5cf6',
+    'marrom': '#92400e', 'rosa': '#ec4899', 'preto': '#1e293b',
+    'cinza': '#6b7280', 'laranja': '#f97316', 'aqua': '#06b6d4'
+};
 
-    // Render fibers
-    const capacity = element.capacity || 8;
-    const fiberColors = ['#3b82f6', '#22c55e', '#ef4444', '#f97316', '#eab308', '#8b5cf6', '#06b6d4', '#ec4899', '#6b7280', '#84cc16', '#14b8a6', '#f43f5e'];
-    const statuses = ['available', 'used', 'available', 'used', 'available', 'available', 'reserved', 'broken'];
-    const statusColors = { available: '#22c55e', used: '#3b82f6', reserved: '#eab308', broken: '#ef4444' };
+const STATUS_COLORS = {
+    'available': '#22c55e',
+    'used': '#3b82f6',
+    'reserved': '#eab308',
+    'broken': '#ef4444'
+};
 
-    let inputHtml = '', outputHtml = '';
-    for (let i = 0; i < capacity; i++) {
-        const color = fiberColors[i % fiberColors.length];
-        const status = statuses[i % statuses.length];
-        inputHtml += `<div class="fiber-slot" data-fiber="${i}"><div class="fiber-color-dot" style="background:${color}"></div><span>${i+1}</span></div>`;
-        outputHtml += `<div class="fiber-slot" data-fiber="${i}"><div class="fiber-color-dot" style="background:${statusColors[status]}"></div><span>Saída ${i+1}</span></div>`;
+let boxEditorState = {
+    elementId: null,
+    cables: { input: [], output: [] },
+    fibers: {},
+    splitters: [],
+    ports: {},
+    fusions: [],
+    selectedFiberOrigin: null,
+    selectedFiberDest: null,
+};
+
+async function openBoxEditor(element) {
+    try {
+        boxEditorState.elementId = element.id;
+
+        // Update header
+        document.getElementById('box-element-name').textContent = element.name;
+        document.getElementById('box-element-badge').textContent = (element.type || 'CTO').toUpperCase();
+
+        // Load all data from Supabase
+        await loadBoxEditorData(element.id);
+
+        // Render UI
+        renderBoxInputCables();
+        renderBoxOutputCables();
+        renderBoxSplitters();
+        renderBoxFusions();
+        drawBoxDiagram();
+
+        // Show modal
+        document.getElementById('modal-box-editor').showModal();
+        reinitIcons();
+    } catch (err) {
+        showToast('Erro ao abrir Box Editor: ' + err.message, 'error');
+    }
+}
+
+async function loadBoxEditorData(elementId) {
+    try {
+        // Get cables connected to this element
+        const [cablesFrom, cablesTo] = await Promise.all([
+            supabase.request('GET', 'cables', {
+                filters: { element_from_id: `eq.${elementId}` },
+                select: 'id,name,type,fiber_count'
+            }),
+            supabase.request('GET', 'cables', {
+                filters: { element_to_id: `eq.${elementId}` },
+                select: 'id,name,type,fiber_count'
+            })
+        ]);
+
+        boxEditorState.cables.input = cablesFrom || [];
+        boxEditorState.cables.output = cablesTo || [];
+
+        // Get fibers for each cable
+        boxEditorState.fibers = {};
+        const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+
+        for (const cable of allCables) {
+            const fibers = await supabase.request('GET', 'fibers', {
+                filters: { cable_id: `eq.${cable.id}` },
+                select: 'id,position,color,status,customer_id'
+            });
+            boxEditorState.fibers[cable.id] = fibers || [];
+        }
+
+        // Get splitters in this element
+        const splitters = await supabase.request('GET', 'splitters', {
+            filters: { element_id: `eq.${elementId}` },
+            select: 'id,ratio,input_fiber_id'
+        });
+        boxEditorState.splitters = splitters || [];
+
+        // Get splitter ports
+        boxEditorState.ports = {};
+        for (const splitter of boxEditorState.splitters) {
+            const ports = await supabase.request('GET', 'splitter_ports', {
+                filters: { splitter_id: `eq.${splitter.id}` },
+                select: 'id,port_number,output_fiber_id,status'
+            });
+            boxEditorState.ports[splitter.id] = ports || [];
+        }
+
+        // Get fusions in this element
+        const fusions = await supabase.request('GET', 'fusions', {
+            filters: { element_id: `eq.${elementId}` },
+            select: 'id,fiber_in_id,fiber_out_id,loss_db,technician,notes,created_at'
+        });
+        boxEditorState.fusions = fusions || [];
+
+    } catch (err) {
+        showToast('Erro ao carregar dados: ' + err.message, 'error');
+    }
+}
+
+function renderBoxInputCables() {
+    const container = document.getElementById('box-input-cables');
+    let html = '';
+
+    if (boxEditorState.cables.input.length === 0) {
+        html = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px;">Nenhum cabo de entrada</div>';
+        container.innerHTML = html;
+        return;
     }
 
-    document.getElementById('box-input-fibers').innerHTML = inputHtml;
-    document.getElementById('box-output-fibers').innerHTML = outputHtml;
+    for (const cable of boxEditorState.cables.input) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+        html += `
+            <div class="cable-group">
+                <div class="cable-name">
+                    <i data-lucide="arrow-right" style="width:12px;height:12px;"></i>
+                    ${cable.name}
+                    <span class="fiber-count">${fibers.length}</span>
+                </div>
+        `;
 
-    // Draw canvas diagram
-    drawBoxDiagram(capacity, fiberColors, statuses, statusColors);
+        for (const fiber of fibers) {
+            const colorKey = fiber.color || 'azul';
+            const color = FIBER_COLORS[colorKey] || '#3b82f6';
+            const statusDisplay = fiber.status || 'available';
 
-    modal.showModal();
+            html += `
+                <div class="fiber-item" data-cable-id="${cable.id}" data-fiber-id="${fiber.id}"
+                     data-color="${color}" data-status="${statusDisplay}">
+                    <div class="fiber-dot" style="background:${color}"></div>
+                    <span class="fiber-number">${fiber.position || '?'}</span>
+                    <span class="fiber-status-badge ${statusDisplay}">${statusDisplay === 'available' ? 'Liv.' : statusDisplay === 'used' ? 'Uso' : statusDisplay === 'reserved' ? 'Res.' : 'Que.'}</span>
+                </div>
+            `;
+        }
+
+        html += '</div>';
+    }
+
+    container.innerHTML = html;
     reinitIcons();
 }
 
-function drawBoxDiagram(capacity, fiberColors, statuses, statusColors) {
-    const canvas = document.getElementById('box-canvas');
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width;
-    const H = canvas.height;
+function renderBoxOutputCables() {
+    const container = document.getElementById('box-output-cables');
+    let html = '';
 
-    ctx.clearRect(0, 0, W, H);
+    if (boxEditorState.cables.output.length === 0) {
+        html = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px;">Nenhum cabo de saída</div>';
+        container.innerHTML = html;
+        return;
+    }
+
+    for (const cable of boxEditorState.cables.output) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+        html += `
+            <div class="cable-group">
+                <div class="cable-name">
+                    <i data-lucide="arrow-left" style="width:12px;height:12px;"></i>
+                    ${cable.name}
+                    <span class="fiber-count">${fibers.length}</span>
+                </div>
+        `;
+
+        for (const fiber of fibers) {
+            const colorKey = fiber.color || 'azul';
+            const color = FIBER_COLORS[colorKey] || '#3b82f6';
+            const statusDisplay = fiber.status || 'available';
+
+            html += `
+                <div class="fiber-item" data-cable-id="${cable.id}" data-fiber-id="${fiber.id}"
+                     data-color="${color}" data-status="${statusDisplay}">
+                    <div class="fiber-dot" style="background:${color}"></div>
+                    <span class="fiber-number">${fiber.position || '?'}</span>
+                    <span class="fiber-status-badge ${statusDisplay}">${statusDisplay === 'available' ? 'Liv.' : statusDisplay === 'used' ? 'Uso' : statusDisplay === 'reserved' ? 'Res.' : 'Que.'}</span>
+                </div>
+            `;
+        }
+
+        html += '</div>';
+    }
+
+    container.innerHTML = html;
+    reinitIcons();
+}
+
+function renderBoxSplitters() {
+    // Splitters are drawn in the diagram, not in separate panels
+    // This function can be extended for future detailed splitter management
+}
+
+function renderBoxFusions() {
+    const tbody = document.getElementById('box-fusions-body');
+    const countEl = document.getElementById('fusion-count');
+
+    countEl.textContent = `${boxEditorState.fusions.length} fusão(ões)`;
+
+    if (boxEditorState.fusions.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8;">Nenhuma fusão registrada</td></tr>';
+        return;
+    }
+
+    let html = '';
+    for (const fusion of boxEditorState.fusions) {
+        const fiberIn = findFiberById(fusion.fiber_in_id);
+        const fiberOut = findFiberById(fusion.fiber_out_id);
+        const cableIn = findCableByFiberId(fusion.fiber_in_id);
+        const cableOut = findCableByFiberId(fusion.fiber_out_id);
+
+        html += `
+            <tr>
+                <td>${cableIn?.type || '?'}</td>
+                <td>${cableIn?.name || '?'}</td>
+                <td>${fiberIn?.position || '?'}</td>
+                <td>${cableOut?.type || '?'}</td>
+                <td>${cableOut?.name || '?'}</td>
+                <td>${fiberOut?.position || '?'}</td>
+                <td>${fusion.loss_db ? fusion.loss_db.toFixed(2) : '—'}</td>
+                <td>
+                    <button class="fusion-action-btn" title="Excluir" onclick="deleteFusion(${fusion.id})">
+                        <i data-lucide="trash-2"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+
+    tbody.innerHTML = html;
+    reinitIcons();
+}
+
+function drawBoxDiagram() {
+    const svg = document.getElementById('box-diagram-svg');
+    const W = 600;
+    const H = 500;
+
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.innerHTML = '';
 
     // Background
-    ctx.fillStyle = '#fafbfc';
-    ctx.fillRect(0, 0, W, H);
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('width', W);
+    bg.setAttribute('height', H);
+    bg.setAttribute('fill', 'white');
+    svg.appendChild(bg);
 
-    // Box outline
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(20, 20, W - 40, H - 40);
+    // Margins
+    const marginLeft = 60;
+    const marginRight = 60;
+    const marginTop = 40;
+    const marginBottom = 40;
+    const usableWidth = W - marginLeft - marginRight;
+    const usableHeight = H - marginTop - marginBottom;
 
-    // Title inside box
-    ctx.fillStyle = '#64748b';
-    ctx.font = '12px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Diagrama Interno', W / 2, 42);
+    // Title
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('x', W / 2);
+    title.setAttribute('y', 25);
+    title.setAttribute('text-anchor', 'middle');
+    title.setAttribute('font-size', '14');
+    title.setAttribute('font-weight', 'bold');
+    title.setAttribute('fill', '#1e293b');
+    title.textContent = 'Diagrama de Fibras e Splitters';
+    svg.appendChild(title);
 
-    const startY = 60;
-    const endY = H - 40;
-    const spacing = Math.min(30, (endY - startY) / capacity);
+    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+    const maxFibers = Math.max(
+        ...allCables.map(c => boxEditorState.fibers[c.id]?.length || 0),
+        10
+    );
 
-    for (let i = 0; i < capacity; i++) {
-        const y = startY + i * spacing + spacing / 2;
-        const color = fiberColors[i % fiberColors.length];
-        const status = statuses[i % statuses.length];
-        const sColor = statusColors[status];
+    const fiberSpacing = Math.min(35, usableHeight / (maxFibers + 1));
+    const centerX = W / 2;
 
-        // Input fiber line
-        ctx.beginPath();
-        ctx.moveTo(30, y);
-        ctx.lineTo(W / 2 - 20, y);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+    let yIndex = 0;
 
-        // Fusion/connection point
-        ctx.beginPath();
-        ctx.arc(W / 2, y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#1e293b';
-        ctx.fill();
+    // Draw input cables (left side)
+    for (const cable of boxEditorState.cables.input) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
 
-        // Output fiber line
-        ctx.beginPath();
-        ctx.moveTo(W / 2 + 20, y);
-        ctx.lineTo(W - 30, y);
-        ctx.strokeStyle = sColor;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        const cableY = marginTop + (yIndex + fibers.length / 2) * fiberSpacing;
+        yIndex += fibers.length + 1;
 
-        // Input dot
-        ctx.beginPath();
-        ctx.arc(30, y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
+        // Cable label
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', 10);
+        label.setAttribute('y', cableY);
+        label.setAttribute('font-size', '11');
+        label.setAttribute('fill', '#64748b');
+        label.textContent = cable.name.substring(0, 12);
+        svg.appendChild(label);
 
-        // Output dot
-        ctx.beginPath();
-        ctx.arc(W - 30, y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = sColor;
-        ctx.fill();
+        // Draw each fiber
+        for (let i = 0; i < fibers.length; i++) {
+            const fiber = fibers[i];
+            const colorKey = fiber.color || 'azul';
+            const color = FIBER_COLORS[colorKey] || '#3b82f6';
+            const y = marginTop + (yIndex - fibers.length + i) * fiberSpacing;
+
+            // Fiber line
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', marginLeft);
+            line.setAttribute('y1', y);
+            line.setAttribute('x2', centerX - 20);
+            line.setAttribute('y2', y);
+            line.setAttribute('stroke', color);
+            line.setAttribute('stroke-width', '2');
+            svg.appendChild(line);
+
+            // Start dot
+            const dot1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            dot1.setAttribute('cx', marginLeft);
+            dot1.setAttribute('cy', y);
+            dot1.setAttribute('r', '4');
+            dot1.setAttribute('fill', color);
+            dot1.setAttribute('stroke', 'white');
+            dot1.setAttribute('stroke-width', '1');
+            svg.appendChild(dot1);
+        }
+    }
+
+    // Draw splitters (middle)
+    yIndex = 0;
+    for (const splitter of boxEditorState.splitters) {
+        const ratio = splitter.ratio || '1:8';
+        const parts = ratio.split(':');
+        const outputCount = parseInt(parts[1]) || 8;
+
+        const splitterY = marginTop + 30 + yIndex * (outputCount + 1) * fiberSpacing;
+        yIndex += outputCount + 2;
+
+        // Splitter box
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', centerX - 15);
+        box.setAttribute('y', splitterY - 15);
+        box.setAttribute('width', 30);
+        box.setAttribute('height', 30);
+        box.setAttribute('fill', '#ede9fe');
+        box.setAttribute('stroke', '#7c3aed');
+        box.setAttribute('stroke-width', '2');
+        box.setAttribute('rx', '4');
+        svg.appendChild(box);
+
+        // Splitter label
+        const splitterLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        splitterLabel.setAttribute('x', centerX);
+        splitterLabel.setAttribute('y', splitterY + 1);
+        splitterLabel.setAttribute('text-anchor', 'middle');
+        splitterLabel.setAttribute('font-size', '10');
+        splitterLabel.setAttribute('font-weight', 'bold');
+        splitterLabel.setAttribute('fill', '#7c3aed');
+        splitterLabel.textContent = ratio;
+        svg.appendChild(splitterLabel);
+
+        // Output lines from splitter
+        const ports = boxEditorState.ports[splitter.id] || [];
+        for (let i = 0; i < outputCount; i++) {
+            const outY = splitterY - (outputCount - 1) * fiberSpacing / 2 + i * fiberSpacing;
+
+            const outLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            outLine.setAttribute('x1', centerX + 15);
+            outLine.setAttribute('y1', splitterY);
+            outLine.setAttribute('x2', centerX + 40);
+            outLine.setAttribute('y2', outY);
+            outLine.setAttribute('stroke', '#7c3aed');
+            outLine.setAttribute('stroke-width', '1.5');
+            outLine.setAttribute('stroke-dasharray', '4,2');
+            svg.appendChild(outLine);
+        }
+    }
+
+    // Draw output cables (right side)
+    yIndex = 0;
+    for (const cable of boxEditorState.cables.output) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+
+        const cableY = marginTop + (yIndex + fibers.length / 2) * fiberSpacing;
+        yIndex += fibers.length + 1;
+
+        // Cable label
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', W - 50);
+        label.setAttribute('y', cableY);
+        label.setAttribute('text-anchor', 'end');
+        label.setAttribute('font-size', '11');
+        label.setAttribute('fill', '#64748b');
+        label.textContent = cable.name.substring(0, 12);
+        svg.appendChild(label);
+
+        // Draw each fiber
+        for (let i = 0; i < fibers.length; i++) {
+            const fiber = fibers[i];
+            const colorKey = fiber.color || 'azul';
+            const color = FIBER_COLORS[colorKey] || '#3b82f6';
+            const y = marginTop + (yIndex - fibers.length + i) * fiberSpacing;
+
+            // Fiber line
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', centerX + 20);
+            line.setAttribute('y1', y);
+            line.setAttribute('x2', W - marginRight);
+            line.setAttribute('y2', y);
+            line.setAttribute('stroke', color);
+            line.setAttribute('stroke-width', '2');
+            svg.appendChild(line);
+
+            // End dot
+            const dot2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            dot2.setAttribute('cx', W - marginRight);
+            dot2.setAttribute('cy', y);
+            dot2.setAttribute('r', '4');
+            dot2.setAttribute('fill', color);
+            dot2.setAttribute('stroke', 'white');
+            dot2.setAttribute('stroke-width', '1');
+            svg.appendChild(dot2);
+        }
     }
 }
 
+function findFiberById(fiberId) {
+    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+    for (const cable of allCables) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+        const fiber = fibers.find(f => f.id === fiberId);
+        if (fiber) return fiber;
+    }
+    return null;
+}
+
+function findCableByFiberId(fiberId) {
+    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+    for (const cable of allCables) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+        if (fibers.some(f => f.id === fiberId)) return cable;
+    }
+    return null;
+}
+
+async function deleteFusion(fusionId) {
+    if (!confirm('Tem certeza que deseja remover esta fusão?')) return;
+
+    try {
+        await supabase.request('DELETE', 'fusions', {
+            filters: { id: `eq.${fusionId}` }
+        });
+
+        boxEditorState.fusions = boxEditorState.fusions.filter(f => f.id !== fusionId);
+        renderBoxFusions();
+        drawBoxDiagram();
+        showToast('Fusão removida', 'success');
+    } catch (err) {
+        showToast('Erro ao remover fusão: ' + err.message, 'error');
+    }
+}
+
+// Box Editor Modal Event Handlers
 document.getElementById('btn-close-box-editor')?.addEventListener('click', () => {
     document.getElementById('modal-box-editor').close();
 });
@@ -834,9 +1202,166 @@ document.getElementById('btn-box-cancel')?.addEventListener('click', () => {
     document.getElementById('modal-box-editor').close();
 });
 
-document.getElementById('btn-box-save')?.addEventListener('click', () => {
+document.getElementById('btn-box-add-splitter')?.addEventListener('click', () => {
+    const select = document.getElementById('splitter-input-fiber');
+    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+    let options = '<option value="">— Selecionar fibra —</option>';
+
+    for (const cable of allCables) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+        for (const fiber of fibers) {
+            options += `<option value="${fiber.id}" data-cable="${cable.name}" data-fiber="${fiber.position}">${cable.name} - Fibra ${fiber.position}</option>`;
+        }
+    }
+
+    select.innerHTML = options;
+    document.getElementById('modal-box-add-splitter').showModal();
+    reinitIcons();
+});
+
+document.getElementById('btn-splitter-confirm')?.addEventListener('click', async () => {
+    const ratio = document.getElementById('splitter-ratio').value;
+    const fiberId = document.getElementById('splitter-input-fiber').value;
+
+    if (!ratio || !fiberId) {
+        showToast('Preencha todos os campos', 'warning');
+        return;
+    }
+
+    try {
+        await supabase.request('POST', 'splitters', {
+            body: {
+                element_id: boxEditorState.elementId,
+                ratio: ratio,
+                input_fiber_id: fiberId
+            }
+        });
+
+        document.getElementById('modal-box-add-splitter').close();
+        await loadBoxEditorData(boxEditorState.elementId);
+        renderBoxSplitters();
+        drawBoxDiagram();
+        showToast(`Splitter ${ratio} adicionado`, 'success');
+    } catch (err) {
+        showToast('Erro ao adicionar splitter: ' + err.message, 'error');
+    }
+});
+
+document.getElementById('btn-box-add-fusion')?.addEventListener('click', () => {
+    const originDiv = document.getElementById('fusion-origin-selector');
+    const destDiv = document.getElementById('fusion-dest-selector');
+
+    originDiv.innerHTML = '';
+    destDiv.innerHTML = '';
+
+    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+
+    for (const cable of allCables) {
+        const fibers = boxEditorState.fibers[cable.id] || [];
+        for (const fiber of fibers) {
+            const itemOrig = document.createElement('div');
+            itemOrig.className = 'fiber-selector-item';
+            itemOrig.innerHTML = `
+                <div class="fiber-dot" style="background:${FIBER_COLORS[fiber.color] || '#3b82f6'}"></div>
+                <span>${cable.name} - Fibra ${fiber.position}</span>
+            `;
+            itemOrig.addEventListener('click', () => {
+                document.querySelectorAll('#fusion-origin-selector .fiber-selector-item').forEach(el =>
+                    el.classList.remove('selected')
+                );
+                itemOrig.classList.add('selected');
+                boxEditorState.selectedFiberOrigin = {
+                    fiberId: fiber.id,
+                    cableId: cable.id,
+                    cableName: cable.name,
+                    position: fiber.position
+                };
+            });
+            originDiv.appendChild(itemOrig);
+
+            const itemDest = document.createElement('div');
+            itemDest.className = 'fiber-selector-item';
+            itemDest.innerHTML = `
+                <div class="fiber-dot" style="background:${FIBER_COLORS[fiber.color] || '#3b82f6'}"></div>
+                <span>${cable.name} - Fibra ${fiber.position}</span>
+            `;
+            itemDest.addEventListener('click', () => {
+                document.querySelectorAll('#fusion-dest-selector .fiber-selector-item').forEach(el =>
+                    el.classList.remove('selected')
+                );
+                itemDest.classList.add('selected');
+                boxEditorState.selectedFiberDest = {
+                    fiberId: fiber.id,
+                    cableId: cable.id,
+                    cableName: cable.name,
+                    position: fiber.position
+                };
+            });
+            destDiv.appendChild(itemDest);
+        }
+    }
+});
+
+document.getElementById('btn-fusion-confirm')?.addEventListener('click', async () => {
+    if (!boxEditorState.selectedFiberOrigin || !boxEditorState.selectedFiberDest) {
+        showToast('Selecione as fibras de origem e destino', 'warning');
+        return;
+    }
+
+    const lossDb = parseFloat(document.getElementById('fusion-loss-db').value) || 0;
+    const notes = document.getElementById('fusion-notes').value || '';
+
+    try {
+        await supabase.request('POST', 'fusions', {
+            body: {
+                element_id: boxEditorState.elementId,
+                fiber_in_id: boxEditorState.selectedFiberOrigin.fiberId,
+                fiber_out_id: boxEditorState.selectedFiberDest.fiberId,
+                loss_db: lossDb > 0 ? lossDb : null,
+                notes: notes || null,
+                technician: 'system'
+            }
+        });
+
+        document.getElementById('modal-box-add-fusion').close();
+        document.getElementById('fusion-loss-db').value = '';
+        document.getElementById('fusion-notes').value = '';
+        boxEditorState.selectedFiberOrigin = null;
+        boxEditorState.selectedFiberDest = null;
+
+        await loadBoxEditorData(boxEditorState.elementId);
+        renderBoxFusions();
+        drawBoxDiagram();
+        showToast('Fusão adicionada', 'success');
+    } catch (err) {
+        showToast('Erro ao adicionar fusão: ' + err.message, 'error');
+    }
+});
+
+document.getElementById('btn-box-save')?.addEventListener('click', async () => {
     showToast('Alterações salvas no Box Editor.', 'success');
     document.getElementById('modal-box-editor').close();
+});
+
+document.getElementById('btn-box-print')?.addEventListener('click', () => {
+    const svg = document.getElementById('box-diagram-svg');
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = `box-editor-${boxEditorState.elementId}.png`;
+        link.click();
+        showToast('Diagrama exportado', 'success');
+    };
+
+    img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
 });
 
 // ===== MODALS =====
