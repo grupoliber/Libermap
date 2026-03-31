@@ -973,189 +973,383 @@ function renderBoxFusions() {
 
 function drawBoxDiagram() {
     const svg = document.getElementById('box-diagram-svg');
-    const W = 600;
-    const H = 500;
+    const ns = 'http://www.w3.org/2000/svg';
+
+    // Layout constants
+    const FIBER_SQ = 14;           // fiber square size
+    const FIBER_GAP = 3;           // gap between fiber squares
+    const CABLE_PAD = 10;          // padding inside cable block
+    const CABLE_SPACING = 30;      // vertical gap between cable blocks
+    const SPLITTER_W = 60;         // splitter triangle width
+    const SPLITTER_H = 80;         // splitter triangle height
+    const MARGIN = 40;
+    const COL_LEFT = 50;           // x center of input cables column
+    const COL_RIGHT_OFFSET = 180;  // right column offset from right edge
+
+    // Calculate cable block width based on max fibers
+    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
+    const maxFibers = Math.max(...allCables.map(c => (boxEditorState.fibers[c.id] || []).length), 6);
+    const BLOCK_W = Math.max(160, maxFibers * (FIBER_SQ + FIBER_GAP) + CABLE_PAD * 2 + 10);
+    const BLOCK_H = 60;
+
+    // Calculate canvas dimensions
+    const W = Math.max(900, COL_LEFT + BLOCK_W + 200 + SPLITTER_W + 200 + BLOCK_W + COL_RIGHT_OFFSET);
+
+    // Calculate heights for each column
+    const inputH = boxEditorState.cables.input.reduce((sum, c) => {
+        const fCount = (boxEditorState.fibers[c.id] || []).length;
+        return sum + BLOCK_H + (fCount > 0 ? 18 : 0) + CABLE_SPACING;
+    }, 0);
+    const outputH = boxEditorState.cables.output.reduce((sum, c) => {
+        const fCount = (boxEditorState.fibers[c.id] || []).length;
+        return sum + BLOCK_H + (fCount > 0 ? 18 : 0) + CABLE_SPACING;
+    }, 0);
+    const splitterH = boxEditorState.splitters.length * (SPLITTER_H + 60);
+    const H = Math.max(400, inputH + MARGIN * 2, outputH + MARGIN * 2, splitterH + MARGIN * 2);
 
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = '';
 
-    // Background
-    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bg.setAttribute('width', W);
-    bg.setAttribute('height', H);
-    bg.setAttribute('fill', 'white');
-    svg.appendChild(bg);
+    // --- Defs: grid pattern ---
+    const defs = document.createElementNS(ns, 'defs');
+    const pat = document.createElementNS(ns, 'pattern');
+    pat.setAttribute('id', 'boxgrid');
+    pat.setAttribute('width', '20');
+    pat.setAttribute('height', '20');
+    pat.setAttribute('patternUnits', 'userSpaceOnUse');
+    // Horizontal dots
+    for (let dx = 0; dx < 20; dx += 5) {
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('cx', dx);
+        dot.setAttribute('cy', 0);
+        dot.setAttribute('r', '0.5');
+        dot.setAttribute('fill', '#cbd5e1');
+        pat.appendChild(dot);
+    }
+    // Vertical dots
+    for (let dy = 5; dy < 20; dy += 5) {
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('cx', 0);
+        dot.setAttribute('cy', dy);
+        dot.setAttribute('r', '0.5');
+        dot.setAttribute('fill', '#cbd5e1');
+        pat.appendChild(dot);
+    }
+    defs.appendChild(pat);
+    svg.appendChild(defs);
 
-    // Margins
-    const marginLeft = 60;
-    const marginRight = 60;
-    const marginTop = 40;
-    const marginBottom = 40;
-    const usableWidth = W - marginLeft - marginRight;
-    const usableHeight = H - marginTop - marginBottom;
+    // Background with grid
+    const bgWhite = document.createElementNS(ns, 'rect');
+    bgWhite.setAttribute('width', W);
+    bgWhite.setAttribute('height', H);
+    bgWhite.setAttribute('fill', '#f8fafc');
+    svg.appendChild(bgWhite);
 
-    // Title
-    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    title.setAttribute('x', W / 2);
-    title.setAttribute('y', 25);
-    title.setAttribute('text-anchor', 'middle');
-    title.setAttribute('font-size', '14');
-    title.setAttribute('font-weight', 'bold');
-    title.setAttribute('fill', '#1e293b');
-    title.textContent = 'Diagrama de Fibras e Splitters';
-    svg.appendChild(title);
+    const bgGrid = document.createElementNS(ns, 'rect');
+    bgGrid.setAttribute('width', W);
+    bgGrid.setAttribute('height', H);
+    bgGrid.setAttribute('fill', 'url(#boxgrid)');
+    svg.appendChild(bgGrid);
 
-    const allCables = [...boxEditorState.cables.input, ...boxEditorState.cables.output];
-    const maxFibers = Math.max(
-        ...allCables.map(c => boxEditorState.fibers[c.id]?.length || 0),
-        10
-    );
+    // Fiber coordinate map for connection lines
+    const fiberCoords = {};
 
-    const fiberSpacing = Math.min(35, usableHeight / (maxFibers + 1));
-    const centerX = W / 2;
-
-    let yIndex = 0;
-
-    // Draw input cables (left side)
-    for (const cable of boxEditorState.cables.input) {
+    // --- Helper: draw cable block ---
+    function drawCableBlock(cable, xCenter, yTop) {
         const fibers = boxEditorState.fibers[cable.id] || [];
+        const fiberCount = fibers.length || 0;
+        const actualBlockW = Math.max(140, fiberCount * (FIBER_SQ + FIBER_GAP) + CABLE_PAD * 2);
+        const blockX = xCenter - actualBlockW / 2;
 
-        const cableY = marginTop + (yIndex + fibers.length / 2) * fiberSpacing;
-        yIndex += fibers.length + 1;
+        // Shadow
+        const shadow = document.createElementNS(ns, 'rect');
+        shadow.setAttribute('x', blockX + 2);
+        shadow.setAttribute('y', yTop + 2);
+        shadow.setAttribute('width', actualBlockW);
+        shadow.setAttribute('height', BLOCK_H);
+        shadow.setAttribute('fill', 'rgba(0,0,0,0.15)');
+        shadow.setAttribute('rx', '4');
+        svg.appendChild(shadow);
 
-        // Cable label
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', 10);
-        label.setAttribute('y', cableY);
+        // Cable block rectangle (dark gray like Geosite)
+        const block = document.createElementNS(ns, 'rect');
+        block.setAttribute('x', blockX);
+        block.setAttribute('y', yTop);
+        block.setAttribute('width', actualBlockW);
+        block.setAttribute('height', BLOCK_H);
+        block.setAttribute('fill', '#374151');
+        block.setAttribute('stroke', '#111827');
+        block.setAttribute('stroke-width', '1.5');
+        block.setAttribute('rx', '4');
+        svg.appendChild(block);
+
+        // Cable name (white text)
+        const label = document.createElementNS(ns, 'text');
+        label.setAttribute('x', xCenter);
+        label.setAttribute('y', yTop + 16);
+        label.setAttribute('text-anchor', 'middle');
         label.setAttribute('font-size', '11');
-        label.setAttribute('fill', '#64748b');
-        label.textContent = cable.name.substring(0, 12);
+        label.setAttribute('font-weight', 'bold');
+        label.setAttribute('fill', 'white');
+        label.setAttribute('font-family', 'monospace');
+        label.textContent = cable.name.length > 20 ? cable.name.substring(0, 20) + '…' : cable.name;
         svg.appendChild(label);
 
-        // Draw each fiber
-        for (let i = 0; i < fibers.length; i++) {
-            const fiber = fibers[i];
-            const colorKey = fiber.color || 'azul';
-            const color = FIBER_COLORS[colorKey] || '#3b82f6';
-            const y = marginTop + (yIndex - fibers.length + i) * fiberSpacing;
+        // Cable type sub-label
+        const subLabel = document.createElementNS(ns, 'text');
+        subLabel.setAttribute('x', xCenter);
+        subLabel.setAttribute('y', yTop + 28);
+        subLabel.setAttribute('text-anchor', 'middle');
+        subLabel.setAttribute('font-size', '9');
+        subLabel.setAttribute('fill', '#9ca3af');
+        subLabel.setAttribute('font-family', 'monospace');
+        subLabel.textContent = (cable.cable_type || 'Óptico').toUpperCase();
+        svg.appendChild(subLabel);
 
-            // Fiber line
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', marginLeft);
-            line.setAttribute('y1', y);
-            line.setAttribute('x2', centerX - 20);
-            line.setAttribute('y2', y);
-            line.setAttribute('stroke', color);
-            line.setAttribute('stroke-width', '2');
-            svg.appendChild(line);
+        // Fiber squares row
+        if (fiberCount > 0) {
+            const rowW = fiberCount * (FIBER_SQ + FIBER_GAP) - FIBER_GAP;
+            const rowX = xCenter - rowW / 2;
+            const rowY = yTop + 36;
 
-            // Start dot
-            const dot1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            dot1.setAttribute('cx', marginLeft);
-            dot1.setAttribute('cy', y);
-            dot1.setAttribute('r', '4');
-            dot1.setAttribute('fill', color);
-            dot1.setAttribute('stroke', 'white');
-            dot1.setAttribute('stroke-width', '1');
-            svg.appendChild(dot1);
+            for (let i = 0; i < fibers.length; i++) {
+                const fiber = fibers[i];
+                const colorKey = fiber.color || 'azul';
+                const color = FIBER_COLORS[colorKey] || '#3b82f6';
+                const sx = rowX + i * (FIBER_SQ + FIBER_GAP);
+
+                // Colored fiber square
+                const sq = document.createElementNS(ns, 'rect');
+                sq.setAttribute('x', sx);
+                sq.setAttribute('y', rowY);
+                sq.setAttribute('width', FIBER_SQ);
+                sq.setAttribute('height', FIBER_SQ);
+                sq.setAttribute('fill', color);
+                sq.setAttribute('stroke', '#000');
+                sq.setAttribute('stroke-width', '0.5');
+                sq.setAttribute('rx', '1');
+                svg.appendChild(sq);
+
+                // Fiber number below square
+                const num = document.createElementNS(ns, 'text');
+                num.setAttribute('x', sx + FIBER_SQ / 2);
+                num.setAttribute('y', rowY + FIBER_SQ + 10);
+                num.setAttribute('text-anchor', 'middle');
+                num.setAttribute('font-size', '8');
+                num.setAttribute('fill', '#475569');
+                num.setAttribute('font-family', 'monospace');
+                num.textContent = fiber.position || (i + 1);
+                svg.appendChild(num);
+
+                // Record fiber position for connection lines
+                // Top of square for connections going up, bottom for going down
+                fiberCoords[fiber.id] = {
+                    top: { x: sx + FIBER_SQ / 2, y: rowY },
+                    bottom: { x: sx + FIBER_SQ / 2, y: rowY + FIBER_SQ },
+                    center: { x: sx + FIBER_SQ / 2, y: rowY + FIBER_SQ / 2 }
+                };
+            }
         }
+
+        return yTop + BLOCK_H + (fiberCount > 0 ? 18 : 0) + CABLE_SPACING;
     }
 
-    // Draw splitters (middle)
-    yIndex = 0;
-    for (const splitter of boxEditorState.splitters) {
+    // --- Helper: draw splitter (blue triangle like Geosite) ---
+    function drawSplitter(splitter, xCenter, yTop) {
         const ratio = splitter.ratio || '1:8';
         const parts = ratio.split(':');
         const outputCount = parseInt(parts[1]) || 8;
 
-        const splitterY = marginTop + 30 + yIndex * (outputCount + 1) * fiberSpacing;
-        yIndex += outputCount + 2;
+        const triW = SPLITTER_W;
+        const triH = SPLITTER_H;
+        const leftX = xCenter - triW / 2;
+        const tipX = xCenter + triW / 2;
+        const topY = yTop;
+        const midY = yTop + triH / 2;
+        const botY = yTop + triH;
 
-        // Splitter box
-        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        box.setAttribute('x', centerX - 15);
-        box.setAttribute('y', splitterY - 15);
-        box.setAttribute('width', 30);
-        box.setAttribute('height', 30);
-        box.setAttribute('fill', '#ede9fe');
-        box.setAttribute('stroke', '#7c3aed');
-        box.setAttribute('stroke-width', '2');
-        box.setAttribute('rx', '4');
-        svg.appendChild(box);
+        // Shadow
+        const shadowPoly = document.createElementNS(ns, 'polygon');
+        shadowPoly.setAttribute('points',
+            `${leftX + 2},${topY + 2} ${tipX + 2},${midY + 2} ${leftX + 2},${botY + 2}`);
+        shadowPoly.setAttribute('fill', 'rgba(0,0,0,0.15)');
+        svg.appendChild(shadowPoly);
 
-        // Splitter label
-        const splitterLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        splitterLabel.setAttribute('x', centerX);
-        splitterLabel.setAttribute('y', splitterY + 1);
-        splitterLabel.setAttribute('text-anchor', 'middle');
-        splitterLabel.setAttribute('font-size', '10');
-        splitterLabel.setAttribute('font-weight', 'bold');
-        splitterLabel.setAttribute('fill', '#7c3aed');
-        splitterLabel.textContent = ratio;
-        svg.appendChild(splitterLabel);
+        // Blue triangle
+        const tri = document.createElementNS(ns, 'polygon');
+        tri.setAttribute('points',
+            `${leftX},${topY} ${tipX},${midY} ${leftX},${botY}`);
+        tri.setAttribute('fill', '#2563eb');
+        tri.setAttribute('stroke', '#1d4ed8');
+        tri.setAttribute('stroke-width', '2');
+        tri.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(tri);
 
-        // Output lines from splitter
+        // Ratio text
+        const txt = document.createElementNS(ns, 'text');
+        txt.setAttribute('x', leftX + triW * 0.35);
+        txt.setAttribute('y', midY + 5);
+        txt.setAttribute('text-anchor', 'middle');
+        txt.setAttribute('font-size', '14');
+        txt.setAttribute('font-weight', 'bold');
+        txt.setAttribute('fill', 'white');
+        txt.setAttribute('font-family', 'monospace');
+        txt.textContent = ratio;
+        svg.appendChild(txt);
+
+        // Input point (left vertex center)
+        fiberCoords[`splitter-in-${splitter.id}`] = {
+            top: { x: leftX, y: midY },
+            bottom: { x: leftX, y: midY },
+            center: { x: leftX, y: midY }
+        };
+
+        // Draw output port lines (fan out from right tip)
         const ports = boxEditorState.ports[splitter.id] || [];
-        for (let i = 0; i < outputCount; i++) {
-            const outY = splitterY - (outputCount - 1) * fiberSpacing / 2 + i * fiberSpacing;
+        const portSpacing = triH / (outputCount + 1);
+        const lineLen = 40;
 
-            const outLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            outLine.setAttribute('x1', centerX + 15);
-            outLine.setAttribute('y1', splitterY);
-            outLine.setAttribute('x2', centerX + 40);
-            outLine.setAttribute('y2', outY);
-            outLine.setAttribute('stroke', '#7c3aed');
-            outLine.setAttribute('stroke-width', '1.5');
-            outLine.setAttribute('stroke-dasharray', '4,2');
-            svg.appendChild(outLine);
+        for (let i = 0; i < outputCount; i++) {
+            const portY = topY + portSpacing * (i + 1);
+            const endX = tipX + lineLen;
+
+            // Line from tip to port
+            const line = document.createElementNS(ns, 'line');
+            line.setAttribute('x1', tipX);
+            line.setAttribute('y1', midY);
+            line.setAttribute('x2', endX);
+            line.setAttribute('y2', portY);
+            line.setAttribute('stroke', '#1d4ed8');
+            line.setAttribute('stroke-width', '1.5');
+            svg.appendChild(line);
+
+            // Port dot
+            const dot = document.createElementNS(ns, 'circle');
+            dot.setAttribute('cx', endX);
+            dot.setAttribute('cy', portY);
+            dot.setAttribute('r', '3');
+            dot.setAttribute('fill', ports[i]?.status === 'used' ? '#ef4444' : '#22c55e');
+            dot.setAttribute('stroke', '#1d4ed8');
+            dot.setAttribute('stroke-width', '1');
+            svg.appendChild(dot);
+
+            // Port number
+            const pNum = document.createElementNS(ns, 'text');
+            pNum.setAttribute('x', endX + 10);
+            pNum.setAttribute('y', portY + 4);
+            pNum.setAttribute('font-size', '8');
+            pNum.setAttribute('fill', '#475569');
+            pNum.setAttribute('font-family', 'monospace');
+            pNum.textContent = (i + 1).toString();
+            svg.appendChild(pNum);
+
+            // Record port position for connections
+            if (ports[i]) {
+                fiberCoords[`splitter-port-${ports[i].id}`] = {
+                    top: { x: endX, y: portY },
+                    bottom: { x: endX, y: portY },
+                    center: { x: endX, y: portY }
+                };
+            }
         }
+
+        // Draw input line (from left of triangle back)
+        if (splitter.input_fiber_id && fiberCoords[splitter.input_fiber_id]) {
+            const fromCoord = fiberCoords[splitter.input_fiber_id].center;
+            const toX = leftX;
+            const toY = midY;
+            const cpX = (fromCoord.x + toX) / 2;
+
+            const connPath = document.createElementNS(ns, 'path');
+            connPath.setAttribute('d',
+                `M ${fromCoord.x} ${fromCoord.y} C ${cpX} ${fromCoord.y}, ${cpX} ${toY}, ${toX} ${toY}`);
+            connPath.setAttribute('stroke', '#374151');
+            connPath.setAttribute('stroke-width', '2');
+            connPath.setAttribute('fill', 'none');
+            svg.appendChild(connPath);
+        }
+
+        return yTop + triH + 40;
+    }
+
+    // --- Layout positions ---
+    const leftColX = COL_LEFT + BLOCK_W / 2;
+    const rightColX = W - COL_RIGHT_OFFSET - BLOCK_W / 2;
+    const midColX = (leftColX + rightColX) / 2;
+
+    // Draw input cables (left side)
+    let yPos = MARGIN;
+    for (const cable of boxEditorState.cables.input) {
+        yPos = drawCableBlock(cable, leftColX, yPos);
     }
 
     // Draw output cables (right side)
-    yIndex = 0;
+    yPos = MARGIN;
     for (const cable of boxEditorState.cables.output) {
-        const fibers = boxEditorState.fibers[cable.id] || [];
+        yPos = drawCableBlock(cable, rightColX, yPos);
+    }
 
-        const cableY = marginTop + (yIndex + fibers.length / 2) * fiberSpacing;
-        yIndex += fibers.length + 1;
+    // Draw splitters (center)
+    yPos = MARGIN + 20;
+    for (const splitter of boxEditorState.splitters) {
+        yPos = drawSplitter(splitter, midColX, yPos);
+    }
 
-        // Cable label
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', W - 50);
-        label.setAttribute('y', cableY);
-        label.setAttribute('text-anchor', 'end');
-        label.setAttribute('font-size', '11');
-        label.setAttribute('fill', '#64748b');
-        label.textContent = cable.name.substring(0, 12);
-        svg.appendChild(label);
+    // --- Draw fusion/connection lines ---
+    for (const fusion of boxEditorState.fusions) {
+        const fromCoords = fiberCoords[fusion.fiber_in_id];
+        const toCoords = fiberCoords[fusion.fiber_out_id];
 
-        // Draw each fiber
-        for (let i = 0; i < fibers.length; i++) {
-            const fiber = fibers[i];
-            const colorKey = fiber.color || 'azul';
-            const color = FIBER_COLORS[colorKey] || '#3b82f6';
-            const y = marginTop + (yIndex - fibers.length + i) * fiberSpacing;
+        if (fromCoords && toCoords) {
+            const from = fromCoords.bottom;
+            const to = toCoords.bottom;
 
-            // Fiber line
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('x1', centerX + 20);
-            line.setAttribute('y1', y);
-            line.setAttribute('x2', W - marginRight);
-            line.setAttribute('y2', y);
-            line.setAttribute('stroke', color);
-            line.setAttribute('stroke-width', '2');
-            svg.appendChild(line);
+            // Determine control points for a smooth curve
+            const dx = Math.abs(to.x - from.x);
+            const dy = to.y - from.y;
+            const dropY = Math.max(from.y, to.y) + 30 + Math.random() * 20;
 
-            // End dot
-            const dot2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            dot2.setAttribute('cx', W - marginRight);
-            dot2.setAttribute('cy', y);
-            dot2.setAttribute('r', '4');
-            dot2.setAttribute('fill', color);
-            dot2.setAttribute('stroke', 'white');
-            dot2.setAttribute('stroke-width', '1');
-            svg.appendChild(dot2);
+            const path = document.createElementNS(ns, 'path');
+            path.setAttribute('d',
+                `M ${from.x} ${from.y} L ${from.x} ${dropY} L ${to.x} ${dropY} L ${to.x} ${to.y}`);
+            path.setAttribute('stroke', '#374151');
+            path.setAttribute('stroke-width', '1.5');
+            path.setAttribute('fill', 'none');
+            path.setAttribute('opacity', '0.7');
+            svg.appendChild(path);
+
+            // Small circles at connection points
+            [from, to].forEach(pt => {
+                const c = document.createElementNS(ns, 'circle');
+                c.setAttribute('cx', pt.x);
+                c.setAttribute('cy', pt.y);
+                c.setAttribute('r', '3');
+                c.setAttribute('fill', '#374151');
+                svg.appendChild(c);
+            });
         }
+    }
+
+    // --- "Nenhum" messages if empty ---
+    if (boxEditorState.cables.input.length === 0) {
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', leftColX);
+        t.setAttribute('y', H / 2);
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('font-size', '12');
+        t.setAttribute('fill', '#94a3b8');
+        t.textContent = 'Sem cabos de entrada';
+        svg.appendChild(t);
+    }
+    if (boxEditorState.cables.output.length === 0) {
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', rightColX);
+        t.setAttribute('y', H / 2);
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('font-size', '12');
+        t.setAttribute('fill', '#94a3b8');
+        t.textContent = 'Sem cabos de saída';
+        svg.appendChild(t);
     }
 }
 
