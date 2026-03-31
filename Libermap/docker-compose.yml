@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: libermap-api
+    ports:
+      - "${SERVER_PORT:-8000}:8000"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-libermap}
+      - DB_USER=${DB_USER:-libermap}
+      - DB_PASSWORD=${DB_PASSWORD:-libermap}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key}
+      - DEBUG=${DEBUG:-true}
+    volumes:
+      - ./src:/app/src
+      - ./web:/app/web
+      - ./config:/app/config
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - libermap-net
+
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: libermap-db
+    environment:
+      - POSTGRES_DB=${DB_NAME:-libermap}
+      - POSTGRES_USER=${DB_USER:-libermap}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-libermap}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-libermap}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - libermap-net
+
+volumes:
+  pgdata:
+
+networks:
+  libermap-net:
+    driver: bridge

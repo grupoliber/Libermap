@@ -1,0 +1,56 @@
+server:
+  host: 0.0.0.0
+  port: 8000
+
+database:
+  host: ${DB_HOST:-localhost}
+  port: ${DB_PORT:-5432}
+  name: ${DB_NAME:-libermap}
+  user: ${DB_USER:-libermap}
+  password: ${DB_PASSWORD}
+
+map:
+  default_center: [-14.79, -39.27]
+  default_zoom: 14
+  tile_provider: openstreetmap
+
+elements:
+  types:
+    - id: pop
+      name: POP
+      icon: building
+      color: "#2563eb"
+
+    - id: cto
+      name: CTO
+      icon: box
+      color: "#16a34a"
+
+    - id: ceo
+      name: Caixa de Emenda
+      icon: git-merge
+      color: "#eab308"
+
+    - id: splitter
+      name: Splitter
+      icon: git-branch
+      color: "#8b5cf6"
+
+    - id: poste
+      name: Poste
+      icon: landmark
+      color: "#6b7280"
+
+fiber_colors:
+  - { position: 1, color: "verde", hex: "#22c55e" }
+  - { position: 2, color: "amarelo", hex: "#eab308" }
+  - { position: 3, color: "branco", hex: "#ffffff" }
+  - { position: 4, color: "azul", hex: "#3b82f6" }
+  - { position: 5, color: "vermelho", hex: "#ef4444" }
+  - { position: 6, color: "violeta", hex: "#8b5cf6" }
+  - { position: 7, color: "marrom", hex: "#92400e" }
+  - { position: 8, color: "rosa", hex: "#ec4899" }
+  - { position: 9, color: "preto", hex: "#000000" }
+  - { position: 10, color: "cinza", hex: "#6b7280" }
+  - { position: 11, color: "laranja", hex: "#f97316" }
+  - { position: 12, color: "aqua", hex: "#06b6d4" }

@@ -1,0 +1,232 @@
+/* Libermap - Estilos */
+
+:root {
+    --color-primary: #2563eb;
+    --color-success: #16a34a;
+    --color-warning: #eab308;
+    --color-purple: #8b5cf6;
+    --color-gray: #6b7280;
+    --color-bg: #f8fafc;
+    --color-surface: #ffffff;
+    --color-text: #1e293b;
+    --color-text-muted: #64748b;
+    --sidebar-width: 360px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Header */
+#app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    padding: 0 16px;
+    background: var(--color-surface);
+    border-bottom: 1px solid #e2e8f0;
+    z-index: 1000;
+    position: relative;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.header-left h1 {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.version {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.header-center {
+    display: flex;
+    gap: 8px;
+}
+
+.header-center select,
+.header-center input {
+    padding: 6px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.header-center input {
+    width: 240px;
+}
+
+.header-right {
+    display: flex;
+    gap: 4px;
+}
+
+.header-right button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    transition: all 0.15s;
+}
+
+.header-right button:hover {
+    background: #f1f5f9;
+    color: var(--color-primary);
+}
+
+/* Mapa */
+#map {
+    height: calc(100vh - 56px);
+    width: 100%;
+}
+
+/* Sidebar */
+#sidebar {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    width: var(--sidebar-width);
+    height: calc(100vh - 56px);
+    background: var(--color-surface);
+    border-left: 1px solid #e2e8f0;
+    z-index: 999;
+    overflow-y: auto;
+    transition: transform 0.2s ease;
+}
+
+#sidebar.hidden {
+    transform: translateX(100%);
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.sidebar-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.sidebar-header button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--color-text-muted);
+}
+
+#sidebar-content {
+    padding: 16px;
+}
+
+/* Modal */
+dialog {
+    border: none;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+}
+
+dialog h2 {
+    font-size: 18px;
+    margin-bottom: 16px;
+}
+
+dialog label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    margin-top: 12px;
+    margin-bottom: 4px;
+}
+
+dialog input,
+dialog select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.form-actions button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid #e2e8f0;
+    background: var(--color-surface);
+}
+
+.form-actions button[type="submit"] {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+/* Marcadores do mapa */
+.element-marker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    border: 2px solid white;
+}
+
+.marker-pop { background: var(--color-primary); }
+.marker-cto { background: var(--color-success); }
+.marker-ceo { background: var(--color-warning); }
+.marker-splitter { background: var(--color-purple); }
+.marker-poste { background: var(--color-gray); }
