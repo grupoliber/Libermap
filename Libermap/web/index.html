@@ -382,42 +382,157 @@
     </dialog>
 
     <!-- Box Editor Modal -->
-    <dialog id="modal-box-editor" class="modal-large">
+    <dialog id="modal-box-editor" class="modal-box-editor">
         <div class="box-editor">
-            <div class="modal-header">
-                <h2><i data-lucide="layout-grid"></i> Box Editor — <span id="box-editor-title">CTO-001</span></h2>
-                <button type="button" class="modal-close" id="btn-close-box-editor"><i data-lucide="x"></i></button>
+            <!-- Header -->
+            <div class="modal-header box-editor-header">
+                <div class="header-left">
+                    <h2><i data-lucide="layout-grid"></i> Box Editor</h2>
+                    <span class="box-element-badge" id="box-element-badge">CTO</span>
+                    <span class="box-element-name" id="box-element-name">CTO-001</span>
+                </div>
+                <div class="header-right">
+                    <button type="button" class="toolbar-btn" id="btn-box-add-splitter" title="Adicionar Splitter">
+                        <i data-lucide="git-branch"></i> Splitter
+                    </button>
+                    <button type="button" class="toolbar-btn" id="btn-box-add-fusion" title="Adicionar Fusão">
+                        <i data-lucide="git-merge"></i> Fusão
+                    </button>
+                    <button type="button" class="toolbar-btn" id="btn-box-print" title="Imprimir/Exportar">
+                        <i data-lucide="printer"></i> Imprimir
+                    </button>
+                    <button type="button" class="modal-close" id="btn-close-box-editor"><i data-lucide="x"></i></button>
+                </div>
             </div>
+
+            <!-- Main Content -->
             <div class="box-editor-body">
-                <!-- Lado esquerdo: fibras de entrada -->
-                <div class="box-side box-input">
-                    <h3>Entrada</h3>
-                    <div id="box-input-fibers" class="fiber-list"></div>
+                <!-- Left Panel: Input Cables -->
+                <div class="box-panel box-input-panel">
+                    <div class="panel-header">
+                        <h3><i data-lucide="arrow-right"></i> Entrada</h3>
+                    </div>
+                    <div id="box-input-cables" class="cables-list"></div>
                 </div>
 
-                <!-- Centro: diagrama visual -->
-                <div class="box-center">
-                    <canvas id="box-canvas" width="400" height="500"></canvas>
+                <!-- Center Panel: Visual Diagram -->
+                <div class="box-diagram-container">
+                    <svg id="box-diagram-svg" class="box-diagram" width="100%" height="100%" viewBox="0 0 600 500">
+                        <!-- Diagram will be drawn here -->
+                    </svg>
                 </div>
 
-                <!-- Lado direito: fibras de saída / splitter ports -->
-                <div class="box-side box-output">
-                    <h3>Saída</h3>
-                    <div id="box-output-fibers" class="fiber-list"></div>
+                <!-- Right Panel: Output Cables -->
+                <div class="box-panel box-output-panel">
+                    <div class="panel-header">
+                        <h3><i data-lucide="arrow-left"></i> Saída</h3>
+                    </div>
+                    <div id="box-output-cables" class="cables-list"></div>
                 </div>
             </div>
+
+            <!-- Fusion Table Section -->
+            <div class="box-fusions-section">
+                <div class="section-header">
+                    <h3><i data-lucide="link-2"></i> Fusões e Ligações</h3>
+                    <span class="fusion-count" id="fusion-count">0 fusões</span>
+                </div>
+                <div class="table-wrapper">
+                    <table id="box-fusions-table" class="box-table">
+                        <thead>
+                            <tr>
+                                <th>Tipo Orig.</th>
+                                <th>Cabo Orig.</th>
+                                <th>Fibra Orig.</th>
+                                <th>Tipo Dest.</th>
+                                <th>Cabo Dest.</th>
+                                <th>Fibra Dest.</th>
+                                <th>Perda (dB)</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="box-fusions-body">
+                            <tr class="empty-row"><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8;">Nenhuma fusão registrada</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Footer -->
             <div class="box-editor-footer">
                 <div class="box-legend">
                     <span class="legend-item"><span class="legend-color" style="background:#22c55e"></span> Disponível</span>
                     <span class="legend-item"><span class="legend-color" style="background:#3b82f6"></span> Em uso</span>
                     <span class="legend-item"><span class="legend-color" style="background:#ef4444"></span> Quebrada</span>
                     <span class="legend-item"><span class="legend-color" style="background:#eab308"></span> Reservada</span>
+                    <span class="legend-item" style="margin-left:auto;"><span class="legend-color" style="background:#7c3aed"></span> Splitter</span>
                 </div>
                 <div class="box-actions">
                     <button type="button" class="btn-cancel" id="btn-box-cancel">Fechar</button>
                     <button type="button" class="btn-primary" id="btn-box-save">Salvar Alterações</button>
                 </div>
             </div>
+        </div>
+    </dialog>
+
+    <!-- Modal: Add Splitter to Box -->
+    <dialog id="modal-box-add-splitter">
+        <div class="modal-header">
+            <h2><i data-lucide="git-branch"></i> Adicionar Splitter</h2>
+            <button type="button" class="modal-close" onclick="document.getElementById('modal-box-add-splitter').close()"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="splitter-ratio">Proporção</label>
+                <select id="splitter-ratio" required>
+                    <option value="">— Selecionar —</option>
+                    <option value="1:2">1:2</option>
+                    <option value="1:4">1:4</option>
+                    <option value="1:8">1:8</option>
+                    <option value="1:16">1:16</option>
+                    <option value="1:32">1:32</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="splitter-input-fiber">Fibra de Entrada</label>
+                <select id="splitter-input-fiber" required>
+                    <option value="">— Selecionar fibra —</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-cancel" onclick="document.getElementById('modal-box-add-splitter').close()">Cancelar</button>
+            <button type="button" class="btn-primary" id="btn-splitter-confirm">Adicionar Splitter</button>
+        </div>
+    </dialog>
+
+    <!-- Modal: Add Fusion to Box -->
+    <dialog id="modal-box-add-fusion">
+        <div class="modal-header">
+            <h2><i data-lucide="git-merge"></i> Adicionar Fusão</h2>
+            <button type="button" class="modal-close" onclick="document.getElementById('modal-box-add-fusion').close()"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Fibra de Origem</label>
+                <div id="fusion-origin-selector" class="fiber-selector"></div>
+            </div>
+            <div class="form-group">
+                <label>Fibra de Destino</label>
+                <div id="fusion-dest-selector" class="fiber-selector"></div>
+            </div>
+            <div class="form-group">
+                <label for="fusion-loss-db">Perda de Inserção (dB)</label>
+                <input type="number" id="fusion-loss-db" step="0.1" min="0" placeholder="Ex: 0.3" />
+            </div>
+            <div class="form-group">
+                <label for="fusion-notes">Notas</label>
+                <textarea id="fusion-notes" rows="2" placeholder="Observações sobre a fusão..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-cancel" onclick="document.getElementById('modal-box-add-fusion').close()">Cancelar</button>
+            <button type="button" class="btn-primary" id="btn-fusion-confirm">Adicionar Fusão</button>
         </div>
     </dialog>
 
