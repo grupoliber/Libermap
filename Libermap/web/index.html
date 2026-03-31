@@ -7,10 +7,11 @@
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 
     <!-- Fontes -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -19,83 +20,417 @@
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-    <!-- Header -->
-    <header id="app-header">
-        <div class="header-left">
-            <h1>🗺️ Libermap</h1>
-            <span class="version">v0.1.0</span>
+    <!-- Menu Lateral Esquerdo (estilo OZmap) -->
+    <nav id="left-menu">
+        <div class="menu-brand">
+            <div class="brand-icon">L</div>
+            <span class="brand-text">Libermap</span>
         </div>
-        <div class="header-center">
-            <select id="area-select">
-                <option value="">Todas as áreas</option>
-            </select>
-            <input type="text" id="search-input" placeholder="Buscar elemento..." />
-        </div>
-        <div class="header-right">
-            <button id="btn-add-element" title="Adicionar elemento">
-                <i data-lucide="plus-circle"></i>
-            </button>
-            <button id="btn-toggle-layers" title="Camadas">
-                <i data-lucide="layers"></i>
-            </button>
-            <button id="btn-export" title="Exportar">
-                <i data-lucide="download"></i>
-            </button>
-        </div>
-    </header>
 
-    <!-- Mapa -->
-    <div id="map"></div>
+        <div class="menu-section">
+            <button class="menu-item active" data-view="map" title="Mapa">
+                <i data-lucide="map"></i>
+                <span>Mapa</span>
+            </button>
+            <button class="menu-item" data-view="dashboard" title="Dashboard">
+                <i data-lucide="bar-chart-3"></i>
+                <span>Dashboard</span>
+            </button>
+            <button class="menu-item" data-view="projects" title="Projetos">
+                <i data-lucide="folder"></i>
+                <span>Projetos</span>
+            </button>
+        </div>
 
-    <!-- Painel lateral -->
+        <div class="menu-divider"></div>
+
+        <div class="menu-section">
+            <div class="menu-label">Cadastros</div>
+            <button class="menu-item" data-view="tipos-caixa" title="Tipos de Caixa">
+                <i data-lucide="box"></i>
+                <span>Tipos de Caixa</span>
+            </button>
+            <button class="menu-item" data-view="tipos-cabo" title="Tipos de Cabo">
+                <i data-lucide="cable"></i>
+                <span>Tipos de Cabo</span>
+            </button>
+            <button class="menu-item" data-view="tipos-olt" title="Tipos de OLT">
+                <i data-lucide="server"></i>
+                <span>Tipos de OLT</span>
+            </button>
+            <button class="menu-item" data-view="tipos-splitter" title="Tipos de Splitter">
+                <i data-lucide="git-branch"></i>
+                <span>Tipos de Splitter</span>
+            </button>
+        </div>
+
+        <div class="menu-divider"></div>
+
+        <div class="menu-section">
+            <div class="menu-label">Sistema</div>
+            <button class="menu-item" data-view="users" title="Usuários">
+                <i data-lucide="users"></i>
+                <span>Usuários</span>
+            </button>
+            <button class="menu-item" data-view="settings" title="Configurações">
+                <i data-lucide="settings"></i>
+                <span>Configurações</span>
+            </button>
+        </div>
+
+        <div class="menu-footer">
+            <span class="version-tag">v2.0.0</span>
+        </div>
+    </nav>
+
+    <!-- Área principal -->
+    <main id="main-area">
+        <!-- Toolbar superior do mapa -->
+        <header id="map-toolbar">
+            <div class="toolbar-left">
+                <button id="btn-menu-toggle" class="toolbar-btn" title="Menu">
+                    <i data-lucide="menu"></i>
+                </button>
+                <div class="toolbar-separator"></div>
+                <div class="toolbar-tools">
+                    <button id="btn-add-element" class="toolbar-btn" title="Adicionar Elemento">
+                        <i data-lucide="plus-circle"></i>
+                        <span>Elemento</span>
+                    </button>
+                    <button id="btn-add-cable" class="toolbar-btn" title="Desenhar Cabo">
+                        <i data-lucide="pen-line"></i>
+                        <span>Cabo</span>
+                    </button>
+                    <button id="btn-measure" class="toolbar-btn" title="Medir Distância">
+                        <i data-lucide="ruler"></i>
+                        <span>Medir</span>
+                    </button>
+                </div>
+            </div>
+            <div class="toolbar-center">
+                <div class="search-box">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="search-input" placeholder="Buscar elementos, cabos, clientes..." />
+                </div>
+            </div>
+            <div class="toolbar-right">
+                <select id="area-select" class="toolbar-select">
+                    <option value="">Todas as áreas</option>
+                </select>
+                <div class="toolbar-separator"></div>
+                <button id="btn-toggle-layers" class="toolbar-btn" title="Camadas">
+                    <i data-lucide="layers"></i>
+                </button>
+                <button id="btn-viability" class="toolbar-btn" title="Viabilidade">
+                    <i data-lucide="route"></i>
+                </button>
+                <button id="btn-export" class="toolbar-btn" title="Exportar">
+                    <i data-lucide="download"></i>
+                </button>
+                <button id="btn-fullscreen" class="toolbar-btn" title="Tela cheia">
+                    <i data-lucide="maximize-2"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Mapa -->
+        <div id="map"></div>
+
+        <!-- Dashboard (inicialmente oculto) -->
+        <div id="dashboard-view" class="view-panel hidden">
+            <div class="dashboard-header">
+                <h2>Dashboard da Rede</h2>
+                <button class="btn-close-view"><i data-lucide="x"></i></button>
+            </div>
+            <div class="dashboard-grid">
+                <div class="dash-card">
+                    <div class="dash-card-icon" style="background:#dbeafe;color:#2563eb;"><i data-lucide="radio-tower"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-pops">0</span>
+                        <span class="dash-card-label">POPs</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-icon" style="background:#dcfce7;color:#16a34a;"><i data-lucide="box"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-ctos">0</span>
+                        <span class="dash-card-label">CTOs</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-icon" style="background:#fef3c7;color:#d97706;"><i data-lucide="git-merge"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-ceos">0</span>
+                        <span class="dash-card-label">Caixas de Emenda</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-icon" style="background:#ede9fe;color:#7c3aed;"><i data-lucide="git-branch"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-splitters">0</span>
+                        <span class="dash-card-label">Splitters</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-icon" style="background:#fee2e2;color:#dc2626;"><i data-lucide="cable"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-cables">0</span>
+                        <span class="dash-card-label">Cabos</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-icon" style="background:#e0f2fe;color:#0284c7;"><i data-lucide="users"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-clients">0</span>
+                        <span class="dash-card-label">Clientes</span>
+                    </div>
+                </div>
+                <div class="dash-card wide">
+                    <div class="dash-card-icon" style="background:#f0fdf4;color:#16a34a;"><i data-lucide="activity"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-km">0 km</span>
+                        <span class="dash-card-label">Total de Fibra</span>
+                    </div>
+                </div>
+                <div class="dash-card wide">
+                    <div class="dash-card-icon" style="background:#fef9c3;color:#ca8a04;"><i data-lucide="percent"></i></div>
+                    <div class="dash-card-info">
+                        <span class="dash-card-value" id="stat-occupancy">0%</span>
+                        <span class="dash-card-label">Ocupação Média</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Painel de cadastro genérico (tipos) -->
+        <div id="crud-view" class="view-panel hidden">
+            <div class="crud-header">
+                <h2 id="crud-title">Cadastro</h2>
+                <div class="crud-actions">
+                    <button id="btn-crud-add" class="btn-primary"><i data-lucide="plus"></i> Novo</button>
+                    <button class="btn-close-view"><i data-lucide="x"></i></button>
+                </div>
+            </div>
+            <div id="crud-content" class="crud-body"></div>
+        </div>
+    </main>
+
+    <!-- Sidebar direita (detalhes do elemento) -->
     <aside id="sidebar" class="hidden">
         <div class="sidebar-header">
-            <h2 id="sidebar-title">Detalhes</h2>
-            <button id="btn-close-sidebar">
-                <i data-lucide="x"></i>
+            <div class="sidebar-header-info">
+                <span class="sidebar-type-badge" id="sidebar-badge">CTO</span>
+                <h2 id="sidebar-title">Detalhes</h2>
+            </div>
+            <div class="sidebar-header-actions">
+                <button id="btn-edit-element" title="Editar"><i data-lucide="pencil"></i></button>
+                <button id="btn-delete-element" title="Excluir"><i data-lucide="trash-2"></i></button>
+                <button id="btn-close-sidebar"><i data-lucide="x"></i></button>
+            </div>
+        </div>
+
+        <!-- Abas -->
+        <div class="sidebar-tabs">
+            <button class="tab-btn active" data-tab="props">Propriedades</button>
+            <button class="tab-btn" data-tab="fibers">Fibras</button>
+            <button class="tab-btn" data-tab="history">Histórico</button>
+        </div>
+
+        <!-- Conteúdo das abas -->
+        <div id="tab-props" class="tab-content active">
+            <div id="sidebar-content"></div>
+        </div>
+        <div id="tab-fibers" class="tab-content">
+            <div id="sidebar-fibers"></div>
+        </div>
+        <div id="tab-history" class="tab-content">
+            <div id="sidebar-history"></div>
+        </div>
+
+        <!-- Ações do rodapé -->
+        <div class="sidebar-footer">
+            <button id="btn-trace" class="btn-action">
+                <i data-lucide="scan-line"></i> Rastrear Fibra
+            </button>
+            <button id="btn-box-editor" class="btn-action btn-secondary">
+                <i data-lucide="layout-grid"></i> Box Editor
             </button>
         </div>
-        <div id="sidebar-content"></div>
     </aside>
 
     <!-- Modal de criação de elemento -->
     <dialog id="modal-element">
         <form id="form-element">
-            <h2>Novo Elemento</h2>
+            <div class="modal-header">
+                <h2>Novo Elemento</h2>
+                <button type="button" class="modal-close" id="btn-cancel-element"><i data-lucide="x"></i></button>
+            </div>
 
-            <label for="elem-type">Tipo</label>
-            <select id="elem-type" required>
-                <option value="pop">POP</option>
-                <option value="cto">CTO</option>
-                <option value="ceo">Caixa de Emenda</option>
-                <option value="splitter">Splitter</option>
-                <option value="poste">Poste</option>
-            </select>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="elem-type">Tipo</label>
+                    <select id="elem-type" required>
+                        <option value="pop">POP</option>
+                        <option value="cto">CTO</option>
+                        <option value="ceo">Caixa de Emenda (CEO)</option>
+                        <option value="splitter">Splitter</option>
+                        <option value="poste">Poste</option>
+                        <option value="cliente">Cliente</option>
+                    </select>
+                </div>
 
-            <label for="elem-name">Nome</label>
-            <input type="text" id="elem-name" required placeholder="Ex: CTO-001" />
+                <div class="form-group">
+                    <label for="elem-name">Nome</label>
+                    <input type="text" id="elem-name" required placeholder="Ex: CTO-001" />
+                </div>
 
-            <label for="elem-address">Endereço</label>
-            <input type="text" id="elem-address" placeholder="Rua, número" />
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="elem-address">Endereço</label>
+                        <input type="text" id="elem-address" placeholder="Rua, número" />
+                    </div>
+                    <div class="form-group">
+                        <label for="elem-area">Área</label>
+                        <input type="text" id="elem-area" placeholder="Bairro" />
+                    </div>
+                </div>
 
-            <label for="elem-area">Área</label>
-            <input type="text" id="elem-area" placeholder="Nome do bairro" />
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="elem-capacity">Capacidade</label>
+                        <input type="number" id="elem-capacity" min="1" placeholder="Portas/fibras" />
+                    </div>
+                    <div class="form-group">
+                        <label for="elem-model">Modelo</label>
+                        <input type="text" id="elem-model" placeholder="Modelo do equipamento" />
+                    </div>
+                </div>
 
-            <label for="elem-capacity">Capacidade</label>
-            <input type="number" id="elem-capacity" min="1" placeholder="Nº de portas/fibras" />
+                <div class="form-group">
+                    <label for="elem-notes">Observações</label>
+                    <textarea id="elem-notes" rows="2" placeholder="Observações adicionais..."></textarea>
+                </div>
 
-            <input type="hidden" id="elem-lat" />
-            <input type="hidden" id="elem-lng" />
+                <input type="hidden" id="elem-lat" />
+                <input type="hidden" id="elem-lng" />
+            </div>
 
-            <div class="form-actions">
-                <button type="button" id="btn-cancel-element">Cancelar</button>
-                <button type="submit">Salvar</button>
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" onclick="document.getElementById('modal-element').close()">Cancelar</button>
+                <button type="submit" class="btn-primary">Salvar Elemento</button>
             </div>
         </form>
     </dialog>
 
+    <!-- Modal de criação de cabo -->
+    <dialog id="modal-cable">
+        <form id="form-cable">
+            <div class="modal-header">
+                <h2>Novo Cabo</h2>
+                <button type="button" class="modal-close" onclick="document.getElementById('modal-cable').close()"><i data-lucide="x"></i></button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="cable-name">Nome</label>
+                    <input type="text" id="cable-name" required placeholder="Ex: Backbone-01" />
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cable-type">Tipo</label>
+                        <select id="cable-type" required>
+                            <option value="backbone">Backbone</option>
+                            <option value="distribuicao">Distribuição</option>
+                            <option value="drop">Drop</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="cable-fibers">Nº de Fibras</label>
+                        <input type="number" id="cable-fibers" required min="1" value="12" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Comprimento estimado</label>
+                    <input type="text" id="cable-length" readonly placeholder="Será calculado automaticamente" />
+                </div>
+
+                <input type="hidden" id="cable-path-data" />
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn-cancel" onclick="cancelCableDraw()">Cancelar</button>
+                <button type="submit" class="btn-primary">Salvar Cabo</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Box Editor Modal -->
+    <dialog id="modal-box-editor" class="modal-large">
+        <div class="box-editor">
+            <div class="modal-header">
+                <h2><i data-lucide="layout-grid"></i> Box Editor — <span id="box-editor-title">CTO-001</span></h2>
+                <button type="button" class="modal-close" id="btn-close-box-editor"><i data-lucide="x"></i></button>
+            </div>
+            <div class="box-editor-body">
+                <!-- Lado esquerdo: fibras de entrada -->
+                <div class="box-side box-input">
+                    <h3>Entrada</h3>
+                    <div id="box-input-fibers" class="fiber-list"></div>
+                </div>
+
+                <!-- Centro: diagrama visual -->
+                <div class="box-center">
+                    <canvas id="box-canvas" width="400" height="500"></canvas>
+                </div>
+
+                <!-- Lado direito: fibras de saída / splitter ports -->
+                <div class="box-side box-output">
+                    <h3>Saída</h3>
+                    <div id="box-output-fibers" class="fiber-list"></div>
+                </div>
+            </div>
+            <div class="box-editor-footer">
+                <div class="box-legend">
+                    <span class="legend-item"><span class="legend-color" style="background:#22c55e"></span> Disponível</span>
+                    <span class="legend-item"><span class="legend-color" style="background:#3b82f6"></span> Em uso</span>
+                    <span class="legend-item"><span class="legend-color" style="background:#ef4444"></span> Quebrada</span>
+                    <span class="legend-item"><span class="legend-color" style="background:#eab308"></span> Reservada</span>
+                </div>
+                <div class="box-actions">
+                    <button type="button" class="btn-cancel" id="btn-box-cancel">Fechar</button>
+                    <button type="button" class="btn-primary" id="btn-box-save">Salvar Alterações</button>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Modal de Viabilidade -->
+    <dialog id="modal-viability">
+        <div class="modal-header">
+            <h2><i data-lucide="route"></i> Análise de Viabilidade</h2>
+            <button type="button" class="modal-close" onclick="document.getElementById('modal-viability').close()"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Clique no mapa para selecionar o ponto do cliente</label>
+                <div class="viability-result" id="viability-result">
+                    <p class="text-muted">Aguardando seleção do ponto...</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-cancel" onclick="document.getElementById('modal-viability').close()">Fechar</button>
+        </div>
+    </dialog>
+
+    <!-- Toast de notificações -->
+    <div id="toast-container"></div>
+
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
     <!-- App JS -->
     <script src="/js/api.js"></script>

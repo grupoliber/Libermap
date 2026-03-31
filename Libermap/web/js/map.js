@@ -1,19 +1,28 @@
 /**
- * Libermap - Módulo do Mapa (Leaflet)
+ * Libermap v2 - Módulo do Mapa (Leaflet)
+ * Inclui: marcadores, cabos, desenho de polyline, medição, viabilidade
  */
 
 const LiberMap = {
     map: null,
     layers: {},
     markers: {},
+    cables: {},
+    drawingMode: null, // null, 'cable', 'measure'
+    drawPoints: [],
+    drawLine: null,
+    drawMarkers: [],
+    measureLine: null,
+    measureMarkers: [],
 
     // Cores por tipo de elemento
     colors: {
         pop: '#2563eb',
         cto: '#16a34a',
-        ceo: '#eab308',
-        splitter: '#8b5cf6',
+        ceo: '#d97706',
+        splitter: '#7c3aed',
         poste: '#6b7280',
+        cliente: '#0ea5e9',
     },
 
     // Labels por tipo
@@ -23,45 +32,77 @@ const LiberMap = {
         ceo: 'E',
         splitter: 'S',
         poste: '●',
+        cliente: 'U',
+    },
+
+    // Nomes legíveis
+    typeNames: {
+        pop: 'POP',
+        cto: 'CTO',
+        ceo: 'Caixa de Emenda',
+        splitter: 'Splitter',
+        poste: 'Poste',
+        cliente: 'Cliente',
     },
 
     /**
      * Inicializa o mapa
      */
     init(containerId, options = {}) {
-        const defaultCenter = [
-            options.lat || -14.79,
-            options.lng || -39.27,
-        ];
+        const defaultCenter = [options.lat || -14.79, options.lng || -39.27];
         const defaultZoom = options.zoom || 14;
 
         this.map = L.map(containerId, {
             center: defaultCenter,
             zoom: defaultZoom,
-            zoomControl: true,
+            zoomControl: false,
         });
 
-        // Tile layer (OpenStreetMap)
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors | Libermap',
-            maxZoom: 19,
-        }).addTo(this.map);
+        // Zoom control no canto direito
+        L.control.zoom({ position: 'bottomright' }).addTo(this.map);
 
-        // Camadas por tipo de elemento
+        // Tile layers
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap | Libermap',
+            maxZoom: 19,
+        });
+
+        const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; Esri | Libermap',
+            maxZoom: 19,
+        });
+
+        osm.addTo(this.map);
+
+        // Layer groups por tipo de elemento
         Object.keys(this.colors).forEach((type) => {
             this.layers[type] = L.layerGroup().addTo(this.map);
         });
         this.layers.cables = L.layerGroup().addTo(this.map);
 
         // Controle de camadas
-        L.control.layers(null, {
+        const baseMaps = {
+            'Mapa': osm,
+            'Satélite': satellite,
+        };
+        const overlays = {
             'POPs': this.layers.pop,
             'CTOs': this.layers.cto,
             'Caixas de Emenda': this.layers.ceo,
             'Splitters': this.layers.splitter,
             'Postes': this.layers.poste,
+            'Clientes': this.layers.cliente,
             'Cabos': this.layers.cables,
-        }).addTo(this.map);
+        };
+
+        L.control.layers(baseMaps, overlays, { position: 'topright' }).addTo(this.map);
+
+        // Escala
+        L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(this.map);
+
+        // Clique no mapa (para drawing modes)
+        this.map.on('click', (e) => this._onMapClick(e));
+        this.map.on('mousemove', (e) => this._onMapMouseMove(e));
 
         return this;
     },
@@ -72,7 +113,6 @@ const LiberMap = {
     createIcon(type) {
         const color = this.colors[type] || '#6b7280';
         const label = this.labels[type] || '?';
-
         return L.divIcon({
             className: '',
             html: `<div class="element-marker marker-${type}">${label}</div>`,
@@ -86,21 +126,25 @@ const LiberMap = {
      * Adiciona um elemento no mapa
      */
     addElement(element) {
-        if (!element.location) return;
+        if (!element.location && !(element.lat && element.lng)) return;
 
-        const { lat, lng } = element.location;
+        const lat = element.location ? element.location.lat : element.lat;
+        const lng = element.location ? element.location.lng : element.lng;
+        if (!lat || !lng) return;
+
+        element.location = { lat, lng };
         const icon = this.createIcon(element.type);
 
         const marker = L.marker([lat, lng], { icon })
             .bindPopup(`
                 <strong>${element.name}</strong><br>
-                <small>${element.type.toUpperCase()}</small><br>
-                ${element.address || ''}<br>
-                <em>Área: ${element.area || 'N/A'}</em>
+                <small style="color:#64748b">${this.typeNames[element.type] || element.type}</small><br>
+                ${element.address ? element.address + '<br>' : ''}
+                ${element.area ? '<em>Área: ' + element.area + '</em>' : ''}
             `)
             .on('click', () => {
-                if (typeof onElementClick === 'function') {
-                    onElementClick(element);
+                if (typeof window.onElementClick === 'function') {
+                    window.onElementClick(element);
                 }
             });
 
@@ -108,7 +152,6 @@ const LiberMap = {
             marker.addTo(this.layers[element.type]);
         }
         this.markers[element.id] = marker;
-
         return marker;
     },
 
@@ -125,38 +168,50 @@ const LiberMap = {
         };
 
         const color = cableColors[cable.cable_type] || '#6b7280';
+        const weight = cable.cable_type === 'backbone' ? 4 : cable.cable_type === 'distribuicao' ? 3 : 2;
 
         const polyline = L.polyline(cable.path, {
             color,
-            weight: cable.cable_type === 'backbone' ? 4 : 2,
-            opacity: 0.8,
+            weight,
+            opacity: 0.85,
         }).bindPopup(`
             <strong>${cable.name || 'Cabo'}</strong><br>
-            Tipo: ${cable.cable_type}<br>
-            Fibras: ${cable.fiber_count}<br>
+            <small style="color:#64748b">${cable.cable_type || 'N/A'}</small><br>
+            Fibras: ${cable.fiber_count || '?'}<br>
             Comprimento: ${cable.length_meters ? cable.length_meters.toFixed(0) + 'm' : 'N/A'}
         `);
 
+        polyline.on('click', () => {
+            if (typeof window.onCableClick === 'function') {
+                window.onCableClick(cable);
+            }
+        });
+
         polyline.addTo(this.layers.cables);
+        this.cables[cable.id] = polyline;
         return polyline;
     },
 
     /**
-     * Carrega todos os elementos do backend (Supabase RPC com coords)
+     * Carrega todos os elementos do backend
      */
     async loadElements(filters = {}) {
         try {
             const elements = await supabase.rpc('get_elements_with_coords', {
                 p_area: filters.area || null,
             });
+            const counts = { pop: 0, cto: 0, ceo: 0, splitter: 0, poste: 0, cliente: 0 };
             elements.forEach((el) => {
                 if (el.lat && el.lng) {
                     el.location = { lat: el.lat, lng: el.lng };
                 }
                 this.addElement(el);
+                if (counts.hasOwnProperty(el.type)) counts[el.type]++;
             });
+            return counts;
         } catch (err) {
             console.error('Erro ao carregar elementos:', err);
+            return {};
         }
     },
 
@@ -166,28 +221,187 @@ const LiberMap = {
     async loadCables(filters = {}) {
         try {
             const cables = await api.cables.list(filters);
-            cables.forEach((cable) => this.addCable(cable));
+            let totalLength = 0;
+            cables.forEach((cable) => {
+                this.addCable(cable);
+                totalLength += parseFloat(cable.length_meters) || 0;
+            });
+            return { count: cables.length, totalLength };
         } catch (err) {
             console.error('Erro ao carregar cabos:', err);
+            return { count: 0, totalLength: 0 };
         }
     },
 
-    /**
-     * Limpa todos os marcadores
-     */
+    // ===== CABLE DRAWING =====
+
+    startCableDraw() {
+        this.drawingMode = 'cable';
+        this.drawPoints = [];
+        this._clearDrawing();
+        this.map.getContainer().style.cursor = 'crosshair';
+        showToast('Clique no mapa para desenhar o cabo. Duplo-clique para finalizar.', 'info');
+    },
+
+    finishCableDraw() {
+        if (this.drawPoints.length < 2) {
+            showToast('Desenhe pelo menos 2 pontos para o cabo.', 'warning');
+            return null;
+        }
+
+        const path = this.drawPoints.map(p => [p.lat, p.lng]);
+        const lengthM = this._calculatePathLength(this.drawPoints);
+
+        this.drawingMode = null;
+        this.map.getContainer().style.cursor = '';
+
+        // Mostrar modal de cabo
+        document.getElementById('cable-length').value = lengthM.toFixed(0) + 'm';
+        document.getElementById('cable-path-data').value = JSON.stringify(path);
+        document.getElementById('modal-cable').showModal();
+
+        return { path, length: lengthM };
+    },
+
+    cancelCableDraw() {
+        this.drawingMode = null;
+        this.drawPoints = [];
+        this._clearDrawing();
+        this.map.getContainer().style.cursor = '';
+    },
+
+    // ===== MEASURE MODE =====
+
+    startMeasure() {
+        this.drawingMode = 'measure';
+        this.measureMarkers = [];
+        this._clearMeasure();
+        this.map.getContainer().style.cursor = 'crosshair';
+        showToast('Clique nos pontos para medir. Duplo-clique para finalizar.', 'info');
+    },
+
+    finishMeasure() {
+        this.drawingMode = null;
+        this.map.getContainer().style.cursor = '';
+    },
+
+    // ===== INTERNAL DRAWING HANDLERS =====
+
+    _onMapClick(e) {
+        if (this.drawingMode === 'cable') {
+            this.drawPoints.push(e.latlng);
+            this._updateDrawLine();
+            // Vertex marker
+            const m = L.circleMarker(e.latlng, {
+                radius: 5,
+                color: '#2563eb',
+                fillColor: '#ffffff',
+                fillOpacity: 1,
+                weight: 2,
+            }).addTo(this.map);
+            this.drawMarkers.push(m);
+        } else if (this.drawingMode === 'measure') {
+            this.drawPoints.push(e.latlng);
+            this._updateMeasureLine();
+            const m = L.circleMarker(e.latlng, {
+                radius: 4,
+                color: '#dc2626',
+                fillColor: '#ffffff',
+                fillOpacity: 1,
+                weight: 2,
+            }).addTo(this.map);
+            this.measureMarkers.push(m);
+
+            if (this.drawPoints.length >= 2) {
+                const dist = this._calculatePathLength(this.drawPoints);
+                showToast(`Distância: ${dist.toFixed(0)}m`, 'info');
+            }
+        }
+    },
+
+    _onMapMouseMove(e) {
+        if (this.drawingMode === 'cable' && this.drawPoints.length > 0) {
+            const pts = [...this.drawPoints.map(p => [p.lat, p.lng]), [e.latlng.lat, e.latlng.lng]];
+            if (this.drawLine) {
+                this.drawLine.setLatLngs(pts);
+            } else {
+                this.drawLine = L.polyline(pts, { color: '#2563eb', weight: 3, dashArray: '8,6', opacity: 0.7 }).addTo(this.map);
+            }
+        }
+    },
+
+    _updateDrawLine() {
+        const pts = this.drawPoints.map(p => [p.lat, p.lng]);
+        if (this.drawLine) {
+            this.drawLine.setLatLngs(pts);
+        } else {
+            this.drawLine = L.polyline(pts, { color: '#2563eb', weight: 3, dashArray: '8,6', opacity: 0.7 }).addTo(this.map);
+        }
+    },
+
+    _updateMeasureLine() {
+        const pts = this.drawPoints.map(p => [p.lat, p.lng]);
+        if (this.measureLine) {
+            this.measureLine.setLatLngs(pts);
+        } else {
+            this.measureLine = L.polyline(pts, { color: '#dc2626', weight: 2, dashArray: '6,4', opacity: 0.8 }).addTo(this.map);
+        }
+    },
+
+    _clearDrawing() {
+        if (this.drawLine) { this.map.removeLayer(this.drawLine); this.drawLine = null; }
+        this.drawMarkers.forEach(m => this.map.removeLayer(m));
+        this.drawMarkers = [];
+    },
+
+    _clearMeasure() {
+        if (this.measureLine) { this.map.removeLayer(this.measureLine); this.measureLine = null; }
+        this.measureMarkers.forEach(m => this.map.removeLayer(m));
+        this.measureMarkers = [];
+        this.drawPoints = [];
+    },
+
+    _calculatePathLength(points) {
+        let total = 0;
+        for (let i = 1; i < points.length; i++) {
+            const a = L.latLng(points[i-1]);
+            const b = L.latLng(points[i]);
+            total += a.distanceTo(b);
+        }
+        return total;
+    },
+
+    // ===== UTILITIES =====
+
     clearAll() {
         Object.values(this.layers).forEach((layer) => layer.clearLayers());
         this.markers = {};
+        this.cables = {};
     },
 
-    /**
-     * Centraliza em um elemento
-     */
     focusElement(elementId) {
         const marker = this.markers[elementId];
         if (marker) {
             this.map.setView(marker.getLatLng(), 17);
             marker.openPopup();
         }
+    },
+
+    /**
+     * Encontra o CTO mais próximo de um ponto (para viabilidade)
+     */
+    findNearestCTO(latlng) {
+        let nearest = null;
+        let minDist = Infinity;
+
+        Object.values(this.markers).forEach((marker) => {
+            const dist = latlng.distanceTo(marker.getLatLng());
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = marker;
+            }
+        });
+
+        return nearest ? { marker: nearest, distance: minDist } : null;
     },
 };
