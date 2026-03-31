@@ -786,16 +786,18 @@ async function loadBoxEditorData(elementId) {
         const [cablesFrom, cablesTo] = await Promise.all([
             supabase.request('GET', 'cables', {
                 filters: { element_from_id: `eq.${elementId}` },
-                select: 'id,name,type,fiber_count'
+                select: 'id,name,cable_type,fiber_count'
             }),
             supabase.request('GET', 'cables', {
                 filters: { element_to_id: `eq.${elementId}` },
-                select: 'id,name,type,fiber_count'
+                select: 'id,name,cable_type,fiber_count'
             })
         ]);
 
-        boxEditorState.cables.input = cablesFrom || [];
-        boxEditorState.cables.output = cablesTo || [];
+        // cablesFrom = cables starting at this element = outgoing (saída)
+        // cablesTo = cables ending at this element = incoming (entrada)
+        boxEditorState.cables.input = cablesTo || [];
+        boxEditorState.cables.output = cablesFrom || [];
 
         // Get fibers for each cable
         boxEditorState.fibers = {};
