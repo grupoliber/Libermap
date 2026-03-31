@@ -518,7 +518,7 @@ window.onElementClick = (element) => {
     // Title
     document.getElementById('sidebar-title').textContent = element.name;
 
-    // Properties tab
+    // Properties tab — basic info
     document.getElementById('sidebar-content').innerHTML = `
         <div class="detail-row"><span class="label">Status</span><span class="value">${element.status || 'active'}</span></div>
         <div class="detail-row"><span class="label">Endereço</span><span class="value">${element.address || '—'}</span></div>
@@ -526,9 +526,15 @@ window.onElementClick = (element) => {
         <div class="detail-row"><span class="label">Capacidade</span><span class="value">${element.capacity || '—'}</span></div>
         <div class="detail-row"><span class="label">Lat/Lng</span><span class="value">${element.location ? element.location.lat.toFixed(5) + ', ' + element.location.lng.toFixed(5) : '—'}</span></div>
         <div class="detail-row"><span class="label">Criado em</span><span class="value">${element.created_at ? new Date(element.created_at).toLocaleDateString('pt-BR') : '—'}</span></div>
+        <div id="sidebar-cables-section" style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
+            <p style="color:#94a3b8;font-size:12px;">Carregando conexões...</p>
+        </div>
     `;
 
-    // Fibers tab
+    // Load real cable connections for this element
+    loadElementConnections(element.id);
+
+    // Fibers tab — load real data
     renderFibersTab(element);
 
     // History tab
@@ -546,29 +552,161 @@ window.onElementClick = (element) => {
     reinitIcons();
 };
 
-function renderFibersTab(element) {
-    const container = document.getElementById('sidebar-fibers');
+// Load cables connected to an element and show in the sidebar
+async function loadElementConnections(elementId) {
+    const section = document.getElementById('sidebar-cables-section');
+    if (!section) return;
 
-    // Simulated fiber data based on capacity
-    const capacity = element.capacity || 8;
-    const fiberColors = ['#3b82f6', '#22c55e', '#ef4444', '#f97316', '#eab308', '#8b5cf6', '#06b6d4', '#ec4899', '#6b7280', '#84cc16', '#14b8a6', '#f43f5e'];
-    const statuses = ['available', 'used', 'available', 'used', 'available', 'available', 'reserved', 'broken'];
+    try {
+        const cablesFrom = await supabase.request('GET', 'cables', {
+            filters: { element_from_id: `eq.${elementId}` },
+            select: 'id,name,cable_type,fiber_count,length_meters,element_to_id'
+        });
+        const cablesTo = await supabase.request('GET', 'cables', {
+            filters: { element_to_id: `eq.${elementId}` },
+            select: 'id,name,cable_type,fiber_count,length_meters,element_from_id'
+        });
 
-    let html = '';
-    for (let i = 0; i < capacity; i++) {
-        const color = fiberColors[i % fiberColors.length];
-        const status = statuses[i % statuses.length];
-        const statusLabel = { available: 'Livre', used: 'Em uso', reserved: 'Reservada', broken: 'Quebrada' };
-        html += `
-            <div class="fiber-item">
-                <div class="fiber-dot" style="background:${color}"></div>
-                <span class="fiber-number">${i + 1}</span>
-                <span style="flex:1;font-size:12px;color:#64748b;">Fibra ${i + 1}</span>
-                <span class="fiber-status ${status}">${statusLabel[status]}</span>
-            </div>
-        `;
+        const allCables = [];
+        (cablesFrom || []).forEach(c => allCables.push({ ...c, direction: 'saída', connectedTo: c.element_to_id }));
+        (cablesTo || []).forEach(c => allCables.push({ ...c, direction: 'entrada', connectedTo: c.element_from_id }));
+
+        if (allCables.length === 0) {
+            section.innerHTML = `
+                <h4 style="font-size:13px;font-weight:600;margin-bottom:6px;color:#334155;">
+                    <i data-lucide="cable" style="width:14px;height:14px;display:inline;vertical-align:middle;"></i> Cabos Conectados
+                </h4>
+                <p style="color:#94a3b8;font-size:12px;">Nenhum cabo conectado a este elemento.</p>
+            `;
+            reinitIcons();
+            return;
+        }
+
+        // Resolve connected element names
+        const elementNames = {};
+        for (const cable of allCables) {
+            if (cable.connectedTo && !elementNames[cable.connectedTo]) {
+                try {
+                    const el = await supabase.request('GET', 'elements', {
+                        filters: { id: `eq.${cable.connectedTo}` },
+                        select: 'id,name,type',
+                        single: true
+                    });
+                    elementNames[cable.connectedTo] = el ? el.name : `#${cable.connectedTo}`;
+                } catch { elementNames[cable.connectedTo] = `#${cable.connectedTo}`; }
+            }
+        }
+
+        const cableTypeLabels = { backbone: 'Backbone', distribuicao: 'Distribuição', drop: 'Drop' };
+        const cableTypeColors = { backbone: '#ef4444', distribuicao: '#f97316', drop: '#22c55e' };
+
+        let html = `<h4 style="font-size:13px;font-weight:600;margin-bottom:8px;color:#334155;">
+            <i data-lucide="cable" style="width:14px;height:14px;display:inline;vertical-align:middle;"></i> Cabos Conectados (${allCables.length})
+        </h4>`;
+
+        allCables.forEach(cable => {
+            const color = cableTypeColors[cable.cable_type] || '#6b7280';
+            const typeLabel = cableTypeLabels[cable.cable_type] || cable.cable_type;
+            const connName = cable.connectedTo ? elementNames[cable.connectedTo] || `#${cable.connectedTo}` : 'Sem destino';
+            const arrow = cable.direction === 'saída' ? '→' : '←';
+            html += `
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:6px;cursor:pointer;" onclick="window.onCableDetailClick && window.onCableDetailClick(${cable.id})">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                        <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block;"></span>
+                        <strong style="font-size:13px;">${cable.name || 'Cabo #' + cable.id}</strong>
+                        <span style="font-size:11px;color:#94a3b8;margin-left:auto;">${typeLabel}</span>
+                    </div>
+                    <div style="font-size:12px;color:#64748b;">
+                        ${arrow} ${connName} · ${cable.fiber_count || '?'} fibras · ${cable.length_meters ? parseFloat(cable.length_meters).toFixed(0) + 'm' : '?'}
+                    </div>
+                </div>
+            `;
+        });
+
+        section.innerHTML = html;
+        reinitIcons();
+    } catch (err) {
+        section.innerHTML = `<p style="color:#ef4444;font-size:12px;">Erro ao carregar conexões: ${err.message}</p>`;
     }
-    container.innerHTML = html || '<p style="color:#64748b;font-size:13px;padding:8px 0;">Nenhuma fibra associada.</p>';
+}
+
+// Load real fiber data for cables connected to this element
+async function renderFibersTab(element) {
+    const container = document.getElementById('sidebar-fibers');
+    container.innerHTML = '<p style="color:#94a3b8;font-size:12px;padding:8px 0;">Carregando fibras...</p>';
+
+    try {
+        // Get cables connected to this element
+        const cablesFrom = await supabase.request('GET', 'cables', {
+            filters: { element_from_id: `eq.${element.id}` },
+            select: 'id,name,cable_type,fiber_count'
+        });
+        const cablesTo = await supabase.request('GET', 'cables', {
+            filters: { element_to_id: `eq.${element.id}` },
+            select: 'id,name,cable_type,fiber_count'
+        });
+        const allCables = [...(cablesFrom || []), ...(cablesTo || [])];
+
+        if (allCables.length === 0) {
+            container.innerHTML = '<p style="color:#94a3b8;font-size:13px;padding:8px 0;">Nenhum cabo conectado — sem fibras para exibir.</p>';
+            return;
+        }
+
+        const fiberColorMap = {
+            verde: '#22c55e', amarelo: '#eab308', branco: '#d1d5db', azul: '#3b82f6',
+            vermelho: '#ef4444', violeta: '#8b5cf6', marrom: '#92400e', rosa: '#ec4899',
+            preto: '#1e293b', cinza: '#6b7280', laranja: '#f97316', aqua: '#06b6d4'
+        };
+        const statusLabels = { available: 'Livre', used: 'Em uso', reserved: 'Reservada', broken: 'Quebrada' };
+        const cableTypeColors = { backbone: '#ef4444', distribuicao: '#f97316', drop: '#22c55e' };
+
+        let html = '';
+
+        for (const cable of allCables) {
+            const cableColor = cableTypeColors[cable.cable_type] || '#6b7280';
+            html += `<div style="margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #e2e8f0;">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${cableColor};display:inline-block;"></span>
+                    <strong style="font-size:13px;">${cable.name || 'Cabo #' + cable.id}</strong>
+                    <span style="font-size:11px;color:#94a3b8;margin-left:auto;">${cable.fiber_count} fibras</span>
+                </div>`;
+
+            // Load fibers for this cable
+            try {
+                const fibers = await supabase.request('GET', 'fibers', {
+                    filters: { cable_id: `eq.${cable.id}` },
+                    select: 'id,position,color,status,customer_id'
+                });
+
+                if (fibers && fibers.length > 0) {
+                    fibers.sort((a, b) => a.position - b.position);
+                    fibers.forEach(fiber => {
+                        const dotColor = fiberColorMap[fiber.color] || '#6b7280';
+                        const statusLabel = statusLabels[fiber.status] || fiber.status;
+                        html += `
+                            <div class="fiber-item">
+                                <div class="fiber-dot" style="background:${dotColor}"></div>
+                                <span class="fiber-number">${fiber.position}</span>
+                                <span style="flex:1;font-size:12px;color:#64748b;">${fiber.color || 'Fibra ' + fiber.position}</span>
+                                ${fiber.customer_id ? `<span style="font-size:11px;color:#0ea5e9;margin-right:4px;">${fiber.customer_id}</span>` : ''}
+                                <span class="fiber-status ${fiber.status}">${statusLabel}</span>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += `<p style="color:#94a3b8;font-size:12px;padding:4px 0;">Fibras ainda não cadastradas para este cabo.</p>`;
+                }
+            } catch (fiberErr) {
+                html += `<p style="color:#f97316;font-size:12px;">Erro ao carregar fibras: ${fiberErr.message}</p>`;
+            }
+
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<p style="color:#ef4444;font-size:12px;">Erro: ${err.message}</p>`;
+    }
 }
 
 // ===== TRACE =====
@@ -789,21 +927,55 @@ function initModals() {
         // Convert [lat, lng] array to PostGIS EWKT format: SRID=4326;LINESTRING(lng lat, lng lat, ...)
         const wktCoords = pathData.map(p => `${p[1]} ${p[0]}`).join(', ');
         const pathWKT = `SRID=4326;LINESTRING(${wktCoords})`;
+
+        const elementFromId = document.getElementById('cable-element-from').value;
+        const elementToId = document.getElementById('cable-element-to').value;
+        const fiberCount = parseInt(document.getElementById('cable-fibers').value);
+
         const data = {
             name: document.getElementById('cable-name').value,
             cable_type: document.getElementById('cable-type').value,
-            fiber_count: parseInt(document.getElementById('cable-fibers').value),
+            fiber_count: fiberCount,
             length_meters: parseFloat(document.getElementById('cable-length').value) || 0,
             path: pathWKT,
+            element_from_id: elementFromId ? parseInt(elementFromId) : null,
+            element_to_id: elementToId ? parseInt(elementToId) : null,
         };
 
         try {
-            const cable = await api.cables.create(data);
-            LiberMap.addCable({ ...data, id: cable?.id || Date.now() });
+            const result = await api.cables.create(data);
+            const cableId = Array.isArray(result) ? result[0]?.id : result?.id;
+
+            // Create individual fiber records
+            if (cableId && fiberCount > 0) {
+                const fiberColors = [
+                    'verde', 'amarelo', 'branco', 'azul', 'vermelho', 'violeta',
+                    'marrom', 'rosa', 'preto', 'cinza', 'laranja', 'aqua'
+                ];
+                const fibers = [];
+                for (let i = 0; i < fiberCount; i++) {
+                    fibers.push({
+                        cable_id: cableId,
+                        position: i + 1,
+                        color: fiberColors[i % fiberColors.length],
+                        status: 'available',
+                    });
+                }
+                try {
+                    await supabase.request('POST', 'fibers', { body: fibers });
+                } catch (fiberErr) {
+                    console.warn('Aviso: fibras não criadas:', fiberErr.message);
+                }
+            }
+
+            LiberMap.addCable({ ...data, id: cableId || Date.now(), path: pathData });
             LiberMap._clearDrawing();
             modalCable.close();
             formCable.reset();
-            showToast(`Cabo ${data.name} criado!`, 'success');
+            const fromName = elementFromId ? document.getElementById('cable-element-from').selectedOptions[0]?.text : '';
+            const toName = elementToId ? document.getElementById('cable-element-to').selectedOptions[0]?.text : '';
+            const connMsg = fromName && toName ? ` (${fromName} → ${toName})` : '';
+            showToast(`Cabo ${data.name} criado${connMsg} com ${fiberCount} fibras!`, 'success');
             AppState.stats.cables = (AppState.stats.cables || 0) + 1;
         } catch (err) {
             showToast('Erro ao criar cabo: ' + err.message, 'error');
