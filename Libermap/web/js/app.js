@@ -1302,6 +1302,8 @@ document.getElementById('btn-box-add-fusion')?.addEventListener('click', () => {
             destDiv.appendChild(itemDest);
         }
     }
+
+    document.getElementById('modal-box-add-fusion').showModal();
 });
 
 document.getElementById('btn-fusion-confirm')?.addEventListener('click', async () => {
