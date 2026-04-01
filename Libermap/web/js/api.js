@@ -25,7 +25,7 @@ const supabase = {
             'apikey': SUPABASE_KEY,
             'Authorization': `Bearer ${SUPABASE_KEY}`,
             'Content-Type': 'application/json',
-            'Prefer': method === 'POST' ? 'return=representation' : '',
+            'Prefer': (method === 'POST' || method === 'PATCH') ? 'return=representation' : '',
         };
         if (single) {
             headers['Accept'] = 'application/vnd.pgrst.object+json';
@@ -119,7 +119,13 @@ const api = {
             if (params.cable_type) filters['cable_type'] = `eq.${params.cable_type}`;
             return supabase.request('GET', 'cables', { filters });
         },
+        get: (id) => supabase.request('GET', 'cables', {
+            filters: { id: `eq.${id}` },
+            single: true,
+        }),
         create: (data) => supabase.request('POST', 'cables', { body: data }),
+        update: (id, data) => supabase.request('PATCH', `cables?id=eq.${id}`, { body: data }),
+        delete: (id) => supabase.request('DELETE', `cables?id=eq.${id}`, {}),
         fibers: (cableId) => supabase.request('GET', 'fibers', {
             filters: { cable_id: `eq.${cableId}` },
         }),
