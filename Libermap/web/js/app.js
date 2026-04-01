@@ -909,6 +909,113 @@ async function deleteCable() {
     }
 }
 
+// ===== SPLIT CABLE AT ELEMENT =====
+async function splitCableAtElement(nearCable, newElementId, elementLocation) {
+    try {
+        // Get the original cable data from API
+        const originalCable = await api.cables.get(nearCable.cableId);
+        if (!originalCable) throw new Error('Cabo não encontrado');
+
+        // Parse original path
+        let originalPath = nearCable.latlngs; // [[lat,lng], ...]
+        const splitIdx = nearCable.segmentIndex;
+        const splitPoint = [elementLocation.lat, elementLocation.lng];
+
+        // Build two paths: start→element and element→end
+        const path1 = [];
+        for (let i = 0; i <= splitIdx; i++) {
+            path1.push(originalPath[i]);
+        }
+        path1.push(splitPoint);
+
+        const path2 = [splitPoint];
+        for (let i = splitIdx + 1; i < originalPath.length; i++) {
+            path2.push(originalPath[i]);
+        }
+
+        // Calculate lengths
+        const calcLength = (pts) => {
+            let total = 0;
+            for (let i = 1; i < pts.length; i++) {
+                total += L.latLng(pts[i - 1]).distanceTo(L.latLng(pts[i]));
+            }
+            return Math.round(total);
+        };
+        const len1 = calcLength(path1);
+        const len2 = calcLength(path2);
+
+        // Convert to PostGIS EWKT
+        const toWKT = (pts) => {
+            const coords = pts.map(p => `${p[1]} ${p[0]}`).join(', ');
+            return `SRID=4326;LINESTRING(${coords})`;
+        };
+
+        const fiberCount = originalCable.fiber_count || 12;
+        const fiberColors = [
+            'verde', 'amarelo', 'branco', 'azul', 'vermelho', 'violeta',
+            'marrom', 'rosa', 'preto', 'cinza', 'laranja', 'aqua'
+        ];
+
+        // Create cable 1: original_from → new element
+        const cable1Data = {
+            name: originalCable.name + ' (A)',
+            cable_type: originalCable.cable_type,
+            fiber_count: fiberCount,
+            length_meters: len1,
+            path: toWKT(path1),
+            element_from_id: originalCable.element_from_id,
+            element_to_id: newElementId,
+        };
+        const result1 = await api.cables.create(cable1Data);
+        const cable1Id = Array.isArray(result1) ? result1[0]?.id : result1?.id;
+
+        // Create cable 2: new element → original_to
+        const cable2Data = {
+            name: originalCable.name + ' (B)',
+            cable_type: originalCable.cable_type,
+            fiber_count: fiberCount,
+            length_meters: len2,
+            path: toWKT(path2),
+            element_from_id: newElementId,
+            element_to_id: originalCable.element_to_id,
+        };
+        const result2 = await api.cables.create(cable2Data);
+        const cable2Id = Array.isArray(result2) ? result2[0]?.id : result2?.id;
+
+        // Create fibers for both cables
+        for (const cableId of [cable1Id, cable2Id]) {
+            if (cableId && fiberCount > 0) {
+                const fibers = [];
+                for (let i = 0; i < fiberCount; i++) {
+                    fibers.push({
+                        cable_id: cableId,
+                        position: i + 1,
+                        color: fiberColors[i % fiberColors.length],
+                        status: 'available',
+                    });
+                }
+                try {
+                    await supabase.request('POST', 'fibers', { body: fibers });
+                } catch (e) { console.warn('Fibras não criadas:', e.message); }
+            }
+        }
+
+        // Delete original cable's fibers and cable
+        await supabase.request('DELETE', `fibers?cable_id=eq.${nearCable.cableId}`, {});
+        await api.cables.delete(nearCable.cableId);
+
+        // Update map: remove old, add new
+        LiberMap.removeCable(nearCable.cableId);
+        LiberMap.addCable({ ...cable1Data, id: cable1Id, path: path1 });
+        LiberMap.addCable({ ...cable2Data, id: cable2Id, path: path2 });
+
+        showToast(`Cabo "${originalCable.name}" dividido em 2! (${len1}m + ${len2}m)`, 'success');
+    } catch (err) {
+        showToast('Erro ao dividir cabo: ' + err.message, 'error');
+        console.error('splitCableAtElement error:', err);
+    }
+}
+
 // Also handle cable click from element sidebar
 window.onCableDetailClick = async (cableId) => {
     try {
@@ -1935,6 +2042,19 @@ function initModals() {
                 // Update stats
                 if (AppState.stats[data.type] !== undefined) {
                     AppState.stats[data.type]++;
+                }
+
+                // Check if CTO/CEO was placed on a cable → offer to split
+                if ((data.type === 'cto' || data.type === 'ceo') && data.location) {
+                    const nearCable = LiberMap.findNearestCable(
+                        L.latLng(data.location.lat, data.location.lng), 30
+                    );
+                    if (nearCable) {
+                        const elementId = element.id || element[0]?.id;
+                        if (elementId && confirm(`Deseja dividir o cabo neste ponto?\nO cabo será partido em 2, conectando ambos ao ${data.name}.`)) {
+                            await splitCableAtElement(nearCable, elementId, data.location);
+                        }
+                    }
                 }
             }
         } catch (err) {
