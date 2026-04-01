@@ -258,6 +258,32 @@
         </div>
     </aside>
 
+    <!-- Sidebar direita (detalhes do cabo) -->
+    <aside id="sidebar-cable" class="hidden">
+        <div class="sidebar-header">
+            <div class="sidebar-header-info">
+                <span class="sidebar-type-badge" id="cable-sidebar-badge" style="background:#ef444420;color:#ef4444;">CABO</span>
+                <h2 id="cable-sidebar-title">Cabo</h2>
+            </div>
+            <div class="sidebar-header-actions">
+                <button id="btn-edit-cable" title="Editar traçado"><i data-lucide="pencil"></i></button>
+                <button id="btn-delete-cable" title="Excluir cabo"><i data-lucide="trash-2"></i></button>
+                <button id="btn-close-cable-sidebar"><i data-lucide="x"></i></button>
+            </div>
+        </div>
+
+        <div id="cable-sidebar-content" style="padding:12px;overflow-y:auto;flex:1;"></div>
+
+        <div class="sidebar-footer">
+            <button id="btn-save-cable" class="btn-action" style="display:none;">
+                <i data-lucide="save"></i> Salvar Alterações
+            </button>
+            <button id="btn-cancel-cable-edit" class="btn-action btn-secondary" style="display:none;">
+                <i data-lucide="x"></i> Cancelar
+            </button>
+        </div>
+    </aside>
+
     <!-- Modal de criação de elemento -->
     <dialog id="modal-element">
         <form id="form-element">
