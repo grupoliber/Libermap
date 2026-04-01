@@ -337,7 +337,57 @@ const LiberMap = {
         this.drawPoints = [];
         this._clearDrawing();
         this.map.getContainer().style.cursor = 'crosshair';
-        showToast('Clique no mapa para desenhar o cabo. Duplo-clique para finalizar.', 'info');
+        showToast('Clique em um elemento ou no mapa para iniciar o cabo. Duplo-clique para finalizar.', 'info');
+
+        // Enable clicking on element markers to start/add points to cable
+        this._cableMarkerHandlers = {};
+        this._cableDblHandlers = {};
+        Object.entries(this.markers).forEach(([id, marker]) => {
+            const handler = (e) => {
+                if (this.drawingMode === 'cable') {
+                    L.DomEvent.stopPropagation(e);
+                    const latlng = marker.getLatLng();
+                    this.drawPoints.push(latlng);
+                    this._updateDrawLine();
+                    // Green vertex marker on element
+                    const m = L.circleMarker(latlng, {
+                        radius: 6, color: '#16a34a', fillColor: '#ffffff',
+                        fillOpacity: 1, weight: 3,
+                    }).addTo(this.map);
+                    this.drawMarkers.push(m);
+                }
+            };
+            const dblHandler = (e) => {
+                if (this.drawingMode === 'cable' && this.drawPoints.length >= 2) {
+                    L.DomEvent.stopPropagation(e);
+                    this.finishCableDraw();
+                }
+            };
+            marker.on('click', handler);
+            marker.on('dblclick', dblHandler);
+            this._cableMarkerHandlers[id] = handler;
+            this._cableDblHandlers[id] = dblHandler;
+        });
+    },
+
+    /**
+     * Remove cable-draw click/dblclick handlers from all element markers
+     */
+    _removeCableMarkerHandlers() {
+        if (this._cableMarkerHandlers) {
+            Object.entries(this._cableMarkerHandlers).forEach(([id, handler]) => {
+                const marker = this.markers[id];
+                if (marker) marker.off('click', handler);
+            });
+            this._cableMarkerHandlers = null;
+        }
+        if (this._cableDblHandlers) {
+            Object.entries(this._cableDblHandlers).forEach(([id, handler]) => {
+                const marker = this.markers[id];
+                if (marker) marker.off('dblclick', handler);
+            });
+            this._cableDblHandlers = null;
+        }
     },
 
     finishCableDraw() {
@@ -348,6 +398,7 @@ const LiberMap = {
 
         this.drawingMode = null;
         this.map.getContainer().style.cursor = '';
+        this._removeCableMarkerHandlers();
 
         // Detect nearest elements at start and end points
         const startPoint = this.drawPoints[0];
@@ -365,6 +416,9 @@ const LiberMap = {
 
         const path = this.drawPoints.map(p => [p.lat, p.lng]);
         const lengthM = this._calculatePathLength(this.drawPoints);
+
+        // Clear drawing markers and preview line from map
+        this._clearDrawing();
 
         // Populate cable modal
         document.getElementById('cable-length').value = lengthM.toFixed(0) + 'm';
@@ -411,6 +465,7 @@ const LiberMap = {
         this.drawingMode = null;
         this.drawPoints = [];
         this._clearDrawing();
+        this._removeCableMarkerHandlers();
         this.map.getContainer().style.cursor = '';
     },
 
