@@ -1253,21 +1253,7 @@ function drawBoxDiagram() {
             }
         }
 
-        // Draw input line (from left of triangle back)
-        if (splitter.input_fiber_id && fiberCoords[splitter.input_fiber_id]) {
-            const fromCoord = fiberCoords[splitter.input_fiber_id].center;
-            const toX = leftX;
-            const toY = midY;
-            const cpX = (fromCoord.x + toX) / 2;
-
-            const connPath = document.createElementNS(ns, 'path');
-            connPath.setAttribute('d',
-                `M ${fromCoord.x} ${fromCoord.y} C ${cpX} ${fromCoord.y}, ${cpX} ${toY}, ${toX} ${toY}`);
-            connPath.setAttribute('stroke', '#374151');
-            connPath.setAttribute('stroke-width', '2');
-            connPath.setAttribute('fill', 'none');
-            svg.appendChild(connPath);
-        }
+        // Note: input connection line drawn later (after all cable blocks exist)
 
         return yTop + triH + 40;
     }
@@ -1295,35 +1281,58 @@ function drawBoxDiagram() {
         yPos = drawSplitter(splitter, midColX, yPos);
     }
 
-    // --- Draw fusion/connection lines ---
+    // --- Draw splitter input connections (fiber → splitter) ---
+    for (const splitter of boxEditorState.splitters) {
+        if (splitter.input_fiber_id && fiberCoords[splitter.input_fiber_id]) {
+            const fromCoord = fiberCoords[splitter.input_fiber_id].center;
+            const splitterIn = fiberCoords[`splitter-in-${splitter.id}`].center;
+
+            // Curved path from fiber square to splitter left vertex
+            const cpX = (fromCoord.x + splitterIn.x) / 2;
+            const connPath = document.createElementNS(ns, 'path');
+            connPath.setAttribute('d',
+                `M ${fromCoord.x} ${fromCoord.y} C ${cpX} ${fromCoord.y}, ${cpX} ${splitterIn.y}, ${splitterIn.x} ${splitterIn.y}`);
+            connPath.setAttribute('stroke', '#374151');
+            connPath.setAttribute('stroke-width', '2');
+            connPath.setAttribute('fill', 'none');
+            svg.appendChild(connPath);
+
+            // Dot at fiber source
+            const srcDot = document.createElementNS(ns, 'circle');
+            srcDot.setAttribute('cx', fromCoord.x);
+            srcDot.setAttribute('cy', fromCoord.y);
+            srcDot.setAttribute('r', '4');
+            srcDot.setAttribute('fill', '#374151');
+            svg.appendChild(srcDot);
+        }
+    }
+
+    // --- Draw fusion/connection lines (fiber → fiber) ---
     for (const fusion of boxEditorState.fusions) {
         const fromCoords = fiberCoords[fusion.fiber_in_id];
         const toCoords = fiberCoords[fusion.fiber_out_id];
 
         if (fromCoords && toCoords) {
-            const from = fromCoords.bottom;
-            const to = toCoords.bottom;
+            const from = fromCoords.center;
+            const to = toCoords.center;
 
-            // Determine control points for a smooth curve
-            const dx = Math.abs(to.x - from.x);
-            const dy = to.y - from.y;
-            const dropY = Math.max(from.y, to.y) + 30 + Math.random() * 20;
-
+            // Smooth bezier curve between fibers
+            const cpX = (from.x + to.x) / 2;
             const path = document.createElementNS(ns, 'path');
             path.setAttribute('d',
-                `M ${from.x} ${from.y} L ${from.x} ${dropY} L ${to.x} ${dropY} L ${to.x} ${to.y}`);
+                `M ${from.x} ${from.y} C ${cpX} ${from.y}, ${cpX} ${to.y}, ${to.x} ${to.y}`);
             path.setAttribute('stroke', '#374151');
-            path.setAttribute('stroke-width', '1.5');
+            path.setAttribute('stroke-width', '2');
             path.setAttribute('fill', 'none');
-            path.setAttribute('opacity', '0.7');
+            path.setAttribute('opacity', '0.8');
             svg.appendChild(path);
 
-            // Small circles at connection points
+            // Connection dots at both ends
             [from, to].forEach(pt => {
                 const c = document.createElementNS(ns, 'circle');
                 c.setAttribute('cx', pt.x);
                 c.setAttribute('cy', pt.y);
-                c.setAttribute('r', '3');
+                c.setAttribute('r', '4');
                 c.setAttribute('fill', '#374151');
                 svg.appendChild(c);
             });
