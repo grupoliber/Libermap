@@ -401,6 +401,17 @@ function initSidebar() {
         }
     });
 
+    // Cable sidebar buttons
+    document.getElementById('btn-close-cable-sidebar').addEventListener('click', closeCableSidebar);
+    document.getElementById('btn-edit-cable').addEventListener('click', startCableVertexEdit);
+    document.getElementById('btn-delete-cable').addEventListener('click', deleteCable);
+    document.getElementById('btn-save-cable').addEventListener('click', saveCableVertexEdit);
+    document.getElementById('btn-cancel-cable-edit').addEventListener('click', () => {
+        cancelCableVertexEdit();
+        document.getElementById('btn-save-cable').style.display = 'none';
+        document.getElementById('btn-cancel-cable-edit').style.display = 'none';
+    });
+
     // Edit element
     document.getElementById('btn-edit-element').addEventListener('click', () => {
         if (!AppState.selectedElement) return;
@@ -629,6 +640,292 @@ async function loadElementConnections(elementId) {
         section.innerHTML = `<p style="color:#ef4444;font-size:12px;">Erro ao carregar conexões: ${err.message}</p>`;
     }
 }
+
+// ===== CABLE SIDEBAR / EDIT / DELETE =====
+
+// State for cable editing
+let cableEditState = {
+    cable: null,
+    editing: false,
+    editMarkers: [],
+    editPolyline: null,
+    originalPath: null,
+};
+
+// Cable click handler — opens cable sidebar
+window.onCableClick = async (cable) => {
+    // Close element sidebar if open
+    document.getElementById('sidebar').classList.add('hidden');
+
+    cableEditState.cable = cable;
+    cableEditState.editing = false;
+
+    const sidebarCable = document.getElementById('sidebar-cable');
+    const titleEl = document.getElementById('cable-sidebar-title');
+    const badgeEl = document.getElementById('cable-sidebar-badge');
+    const contentEl = document.getElementById('cable-sidebar-content');
+
+    titleEl.textContent = cable.name || `Cabo #${cable.id}`;
+
+    const cableTypeLabels = { backbone: 'Backbone', distribuicao: 'Distribuição', drop: 'Drop' };
+    const cableTypeColors = { backbone: '#ef4444', distribuicao: '#f97316', drop: '#22c55e' };
+    const color = cableTypeColors[cable.cable_type] || '#6b7280';
+    badgeEl.style.background = color + '20';
+    badgeEl.style.color = color;
+    badgeEl.textContent = cableTypeLabels[cable.cable_type] || 'CABO';
+
+    // Resolve element names
+    let fromName = '—', toName = '—';
+    if (cable.element_from_id) {
+        try {
+            const el = await api.elements.get(cable.element_from_id);
+            fromName = el ? el.name : `#${cable.element_from_id}`;
+        } catch { fromName = `#${cable.element_from_id}`; }
+    }
+    if (cable.element_to_id) {
+        try {
+            const el = await api.elements.get(cable.element_to_id);
+            toName = el ? el.name : `#${cable.element_to_id}`;
+        } catch { toName = `#${cable.element_to_id}`; }
+    }
+
+    contentEl.innerHTML = `
+        <div class="detail-row"><span class="label">Tipo</span><span class="value">${cableTypeLabels[cable.cable_type] || cable.cable_type}</span></div>
+        <div class="detail-row"><span class="label">Fibras</span><span class="value">${cable.fiber_count || '—'}</span></div>
+        <div class="detail-row"><span class="label">Comprimento</span><span class="value">${cable.length_meters ? parseFloat(cable.length_meters).toFixed(0) + 'm' : '—'}</span></div>
+        <div class="detail-row"><span class="label">Ponta A</span><span class="value">${fromName}</span></div>
+        <div class="detail-row"><span class="label">Ponta B</span><span class="value">${toName}</span></div>
+        <div class="detail-row"><span class="label">Criado em</span><span class="value">${cable.created_at ? new Date(cable.created_at).toLocaleDateString('pt-BR') : '—'}</span></div>
+
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0;">
+            <h4 style="font-size:13px;font-weight:600;margin-bottom:8px;color:#334155;">Editar Propriedades</h4>
+            <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;color:#64748b;">Nome</label>
+                <input type="text" id="cable-edit-name" value="${cable.name || ''}" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-size:12px;color:#64748b;">Tipo</label>
+                <select id="cable-edit-type" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                    <option value="backbone" ${cable.cable_type === 'backbone' ? 'selected' : ''}>Backbone</option>
+                    <option value="distribuicao" ${cable.cable_type === 'distribuicao' ? 'selected' : ''}>Distribuição</option>
+                    <option value="drop" ${cable.cable_type === 'drop' ? 'selected' : ''}>Drop</option>
+                </select>
+            </div>
+            <button id="btn-save-cable-props" style="width:100%;padding:8px;background:#2563eb;color:white;border:none;border-radius:6px;font-size:13px;cursor:pointer;margin-top:4px;">
+                Salvar Propriedades
+            </button>
+        </div>
+    `;
+
+    // Save cable properties handler
+    document.getElementById('btn-save-cable-props').addEventListener('click', async () => {
+        const newName = document.getElementById('cable-edit-name').value.trim();
+        const newType = document.getElementById('cable-edit-type').value;
+        if (!newName) { showToast('Nome é obrigatório', 'warning'); return; }
+
+        try {
+            await api.cables.update(cable.id, { name: newName, cable_type: newType });
+            cable.name = newName;
+            cable.cable_type = newType;
+            titleEl.textContent = newName;
+
+            // Update polyline on map
+            const polyline = LiberMap.cables[cable.id];
+            if (polyline) {
+                const newColor = cableTypeColors[newType] || '#6b7280';
+                const newWeight = newType === 'backbone' ? 4 : newType === 'distribuicao' ? 3 : 2;
+                polyline.setStyle({ color: newColor, weight: newWeight });
+                polyline.setPopupContent(`
+                    <strong>${newName}</strong><br>
+                    <small style="color:#64748b">${newType}</small><br>
+                    Fibras: ${cable.fiber_count || '?'}<br>
+                    Comprimento: ${cable.length_meters ? parseFloat(cable.length_meters).toFixed(0) + 'm' : 'N/A'}
+                `);
+            }
+            showToast('Cabo atualizado!', 'success');
+        } catch (err) {
+            showToast('Erro ao atualizar: ' + err.message, 'error');
+        }
+    });
+
+    // Show footer buttons
+    document.getElementById('btn-save-cable').style.display = 'none';
+    document.getElementById('btn-cancel-cable-edit').style.display = 'none';
+
+    sidebarCable.classList.remove('hidden');
+    reinitIcons();
+};
+
+// Close cable sidebar
+function closeCableSidebar() {
+    document.getElementById('sidebar-cable').classList.add('hidden');
+    cancelCableVertexEdit();
+}
+
+// Edit cable path (vertex dragging)
+function startCableVertexEdit() {
+    const cable = cableEditState.cable;
+    if (!cable) return;
+
+    const polyline = LiberMap.cables[cable.id];
+    if (!polyline) return;
+
+    cableEditState.editing = true;
+    cableEditState.originalPath = polyline.getLatLngs().map(ll => L.latLng(ll.lat, ll.lng));
+
+    // Make existing polyline dashed to show edit mode
+    polyline.setStyle({ dashArray: '8,6', opacity: 0.5 });
+
+    // Create draggable vertex markers
+    const latlngs = polyline.getLatLngs();
+    cableEditState.editMarkers = [];
+
+    latlngs.forEach((ll, idx) => {
+        const marker = L.marker(ll, {
+            draggable: true,
+            icon: L.divIcon({
+                className: '',
+                html: `<div style="width:12px;height:12px;background:white;border:2px solid #2563eb;border-radius:50%;cursor:grab;"></div>`,
+                iconSize: [12, 12],
+                iconAnchor: [6, 6],
+            }),
+        }).addTo(LiberMap.map);
+
+        marker.on('drag', () => {
+            // Update polyline as vertices are dragged
+            const newLatLngs = cableEditState.editMarkers.map(m => m.getLatLng());
+            polyline.setLatLngs(newLatLngs);
+        });
+
+        cableEditState.editMarkers.push(marker);
+    });
+
+    // Show save/cancel buttons
+    document.getElementById('btn-save-cable').style.display = '';
+    document.getElementById('btn-cancel-cable-edit').style.display = '';
+
+    showToast('Arraste os pontos para mover o traçado do cabo. Salve quando terminar.', 'info');
+    reinitIcons();
+}
+
+// Save edited cable path
+async function saveCableVertexEdit() {
+    const cable = cableEditState.cable;
+    if (!cable) return;
+
+    const newLatLngs = cableEditState.editMarkers.map(m => m.getLatLng());
+    const pathArray = newLatLngs.map(ll => [ll.lat, ll.lng]);
+
+    // Convert to PostGIS EWKT
+    const wktCoords = pathArray.map(p => `${p[1]} ${p[0]}`).join(', ');
+    const pathWKT = `SRID=4326;LINESTRING(${wktCoords})`;
+
+    // Calculate new length
+    let lengthM = 0;
+    for (let i = 1; i < newLatLngs.length; i++) {
+        lengthM += newLatLngs[i - 1].distanceTo(newLatLngs[i]);
+    }
+
+    try {
+        await api.cables.update(cable.id, {
+            path: pathWKT,
+            length_meters: Math.round(lengthM),
+        });
+
+        cable.path = pathArray;
+        cable.length_meters = Math.round(lengthM);
+
+        // Update polyline to solid style
+        const polyline = LiberMap.cables[cable.id];
+        if (polyline) {
+            polyline.setLatLngs(newLatLngs);
+            polyline.setStyle({ dashArray: null, opacity: 0.85 });
+        }
+
+        // Remove edit markers
+        cableEditState.editMarkers.forEach(m => LiberMap.map.removeLayer(m));
+        cableEditState.editMarkers = [];
+        cableEditState.editing = false;
+
+        document.getElementById('btn-save-cable').style.display = 'none';
+        document.getElementById('btn-cancel-cable-edit').style.display = 'none';
+
+        showToast(`Traçado atualizado! Novo comprimento: ${Math.round(lengthM)}m`, 'success');
+
+        // Refresh sidebar to show new length
+        window.onCableClick(cable);
+    } catch (err) {
+        showToast('Erro ao salvar traçado: ' + err.message, 'error');
+    }
+}
+
+// Cancel cable vertex edit
+function cancelCableVertexEdit() {
+    if (!cableEditState.editing) return;
+
+    const cable = cableEditState.cable;
+    const polyline = LiberMap.cables[cable?.id];
+
+    // Restore original path
+    if (polyline && cableEditState.originalPath) {
+        polyline.setLatLngs(cableEditState.originalPath);
+        polyline.setStyle({ dashArray: null, opacity: 0.85 });
+    }
+
+    // Remove edit markers
+    cableEditState.editMarkers.forEach(m => LiberMap.map.removeLayer(m));
+    cableEditState.editMarkers = [];
+    cableEditState.editing = false;
+    cableEditState.originalPath = null;
+
+    document.getElementById('btn-save-cable').style.display = 'none';
+    document.getElementById('btn-cancel-cable-edit').style.display = 'none';
+}
+
+// Delete cable
+async function deleteCable() {
+    const cable = cableEditState.cable;
+    if (!cable) return;
+
+    if (!confirm(`Tem certeza que deseja excluir o cabo "${cable.name || cable.id}"?\nIsso também excluirá todas as fibras associadas.`)) return;
+
+    try {
+        // Delete fibers first
+        await supabase.request('DELETE', `fibers?cable_id=eq.${cable.id}`, {});
+        // Delete cable
+        await api.cables.delete(cable.id);
+
+        // Remove from map
+        const polyline = LiberMap.cables[cable.id];
+        if (polyline) {
+            LiberMap.map.removeLayer(polyline);
+            delete LiberMap.cables[cable.id];
+        }
+
+        closeCableSidebar();
+        showToast(`Cabo "${cable.name}" excluído!`, 'success');
+    } catch (err) {
+        showToast('Erro ao excluir cabo: ' + err.message, 'error');
+    }
+}
+
+// Also handle cable click from element sidebar
+window.onCableDetailClick = async (cableId) => {
+    try {
+        const cable = await api.cables.get(cableId);
+        if (cable) {
+            // Parse path if needed
+            if (cable.path && typeof cable.path === 'string') {
+                cable.path = LiberMap._parseGeometry(cable.path);
+            } else if (cable.path && cable.path.type === 'LineString') {
+                cable.path = cable.path.coordinates.map(c => [c[1], c[0]]);
+            }
+            window.onCableClick(cable);
+        }
+    } catch (err) {
+        showToast('Erro ao carregar cabo: ' + err.message, 'error');
+    }
+};
 
 // Load real fiber data for cables connected to this element
 async function renderFibersTab(element) {
