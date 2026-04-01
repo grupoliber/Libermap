@@ -274,6 +274,62 @@ const LiberMap = {
         return nearest;
     },
 
+    /**
+     * Find the nearest cable to a given lat/lng within a threshold (meters)
+     * Returns { cableId, cable, distance, segmentIndex, closestPoint }
+     */
+    findNearestCable(latlng, thresholdMeters = 30) {
+        let nearest = null;
+        let minDist = Infinity;
+
+        Object.entries(this.cables).forEach(([id, polyline]) => {
+            const latlngs = polyline.getLatLngs();
+            for (let i = 0; i < latlngs.length - 1; i++) {
+                const a = latlngs[i];
+                const b = latlngs[i + 1];
+                const closest = this._closestPointOnSegment(latlng, a, b);
+                const dist = this.map.distance(latlng, closest);
+                if (dist < minDist && dist <= thresholdMeters) {
+                    minDist = dist;
+                    nearest = {
+                        cableId: parseInt(id),
+                        polyline,
+                        distance: dist,
+                        segmentIndex: i,
+                        closestPoint: closest,
+                        latlngs: latlngs.map(ll => [ll.lat, ll.lng]),
+                    };
+                }
+            }
+        });
+        return nearest;
+    },
+
+    /**
+     * Find the closest point on a line segment AB to point P
+     */
+    _closestPointOnSegment(p, a, b) {
+        const x = p.lng, y = p.lat;
+        const x1 = a.lng, y1 = a.lat;
+        const x2 = b.lng, y2 = b.lat;
+        const dx = x2 - x1, dy = y2 - y1;
+        if (dx === 0 && dy === 0) return a;
+        let t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+        t = Math.max(0, Math.min(1, t));
+        return L.latLng(y1 + t * dy, x1 + t * dx);
+    },
+
+    /**
+     * Remove a cable from the map
+     */
+    removeCable(cableId) {
+        const polyline = this.cables[cableId];
+        if (polyline) {
+            this.map.removeLayer(polyline);
+            delete this.cables[cableId];
+        }
+    },
+
     // ===== CABLE DRAWING =====
 
     startCableDraw() {
@@ -290,9 +346,6 @@ const LiberMap = {
             return null;
         }
 
-        const path = this.drawPoints.map(p => [p.lat, p.lng]);
-        const lengthM = this._calculatePathLength(this.drawPoints);
-
         this.drawingMode = null;
         this.map.getContainer().style.cursor = '';
 
@@ -301,6 +354,17 @@ const LiberMap = {
         const endPoint = this.drawPoints[this.drawPoints.length - 1];
         const nearStart = this.findNearestElement(startPoint, 80);
         const nearEnd = this.findNearestElement(endPoint, 80);
+
+        // Snap endpoints to element positions if close enough
+        if (nearStart) {
+            this.drawPoints[0] = nearStart.latlng;
+        }
+        if (nearEnd) {
+            this.drawPoints[this.drawPoints.length - 1] = nearEnd.latlng;
+        }
+
+        const path = this.drawPoints.map(p => [p.lat, p.lng]);
+        const lengthM = this._calculatePathLength(this.drawPoints);
 
         // Populate cable modal
         document.getElementById('cable-length').value = lengthM.toFixed(0) + 'm';
