@@ -323,6 +323,26 @@ body {
     transform: translateX(100%);
 }
 
+/* Cable sidebar — same structure as element sidebar */
+#sidebar-cable {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
+    z-index: 1002;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.25s ease;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.06);
+}
+
+#sidebar-cable.hidden {
+    transform: translateX(100%);
+}
+
 .sidebar-header {
     display: flex;
     align-items: center;
@@ -1336,7 +1356,8 @@ dialog.modal-box-editor {
     #left-menu .version-tag {
         display: none;
     }
-    #sidebar {
+    #sidebar,
+    #sidebar-cable {
         width: 100%;
     }
     .toolbar-btn span {
